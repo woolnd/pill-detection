@@ -1,0 +1,49 @@
+name: "👾 Fix"
+description: "버그 제보"
+labels: ["Fix"]
+body:
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: "📌 버그 개요"
+      description: "어떤 버그인지 짧고 명확하게 설명해 주세요."
+      placeholder: "예: 승인 큐가 비었을 때도 발송 스케줄러가 에러 없이 종료되지 않습니다."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: "🛠 재현 경로"
+      description: "버그를 똑같이 발생시키기 위한 순서를 적어주세요."
+      value: |
+        1. 
+        2. 
+        3. 
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: "🎯 기대 결과 vs 실제 결과"
+      description: "원래 어떻게 작동해야 하는지, 현재는 어떻게 작동하는지 적어주세요."
+      placeholder: "기대: 발송 건너뛰고 로그만 남김 / 실제: 예외 발생 후 스케줄러 프로세스 종료"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: "💻 실행 환경"
+      description: "문제가 발생한 환경을 적어주세요."
+      placeholder: "예: 로컬(uv run) / Docker Compose / GCP 배포 서버, Python 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "📸 스크린샷 / 로그"
+      description: "에러 로그, llm_calls.csv 관련 행, 스크린샷 등을 넣어주시면 문제 파악이 훨씬 빠릅니다."
+  - type: textarea
+    id: references
+    attributes:
+      label: "🙋🏻 참고 자료"
+      description: "관련된 이슈 번호(#)나 참고할 만한 링크, 로그 등을 적어주세요."

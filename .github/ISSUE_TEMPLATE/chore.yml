@@ -1,0 +1,31 @@
+name: "⚙️ Chore"
+description: "개발 환경 세팅."
+labels: ["Chore"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: "📌 작업 개요"
+      description: "어떤 단순 작업을 수행하려 하시나요?"
+      placeholder: "예: 외부 라이브러리(Alamofire) 버전 업데이트, .gitignore 파일 수정 등"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: "🛠 상세 내용"
+      description: "변경해야 할 구체적인 설정이나 파일들을 적어주세요."
+      placeholder: "예: SPM 패키지 버전 5.0 -> 5.1로 상향 조정"
+  - type: textarea
+    id: tasks
+    attributes:
+      label: "✅ 작업할 내용"
+      description: "할 일을 체크박스 형태로 작성해주세요."
+      placeholder: "최대한 세분화 해서 적어주세요!"
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: "🙋🏻 참고 자료"
+      description: "작업 시 참고할 공식 문서 링크나 로그가 있다면 작성해 주세요."
