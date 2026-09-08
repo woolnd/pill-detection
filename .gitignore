@@ -15,3 +15,6 @@ data/yolo/
 # OS/에디터
 .DS_Store
 .vscode/
+
+# Claude Code 개인 설정 (.claude/settings.json은 팀 공유용이라 커밋)
+.claude/settings.local.json
