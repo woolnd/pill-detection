@@ -8,14 +8,14 @@ from pathlib import Path
 import kagglehub
 
 COMPETITION = "ai14-level-project"
-RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
+Raw = Path(__file__).resolve().parent.parent / "data" / "raw"
 
-RAW.mkdir(parents=True, exist_ok=True)
+Raw.mkdir(parents=True, exist_ok=True)
 
 path = Path(
     kagglehub.competition_download(
         COMPETITION,
-        output_dir=str(RAW)
+        output_dir=str(Raw)
     )
 )
 
