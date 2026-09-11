@@ -144,7 +144,7 @@ def get_combo(name):
 
     같은 조합을 각도만 바꿔 찍은 사진 3장은 이 값이 같다.
     """
-    return name.split("_")[0]
+    return name.split("_", 1)[0]
 
 
 def split_by_combo(names):
