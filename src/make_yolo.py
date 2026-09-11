@@ -36,7 +36,7 @@ def is_valid(b):
             - 오른쪽 끝(x + w)이 이미지 너비 이하
             - 아래쪽 끝(y + h)이 이미지 높이 이하
     """
-        
+
     return (
         b["x"] >= 0
         and b["y"] >= 0
@@ -95,11 +95,7 @@ def make_class_map(ann):
     YOLO는 0부터 빈틈 없이 이어지는 번호만 받는다.
     """
     # 1~2. 모든 박스의 약 ID -> 중복 제거 -> 정렬
-    sorted({
-        b["class_id"]
-        for boxes in ann.values()
-        for b in boxes
-    })
+    class_ids = sorted({b["class_id"] for boxes in ann.values() for b in boxes})
 
     # 3. enumerate 로 (번호, 약 ID) 를 꺼내서 {약 ID: 번호} 로 뒤집는다
     class_to_idx = {id: i for i, id in enumerate(class_ids)}
