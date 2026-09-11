@@ -1,3 +1,5 @@
+from src.annotations import load_annotations
+from src.make_yolo import *
 
 # ---------- 실행 ----------
 def main():
