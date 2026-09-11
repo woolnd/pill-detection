@@ -64,17 +64,10 @@ def remove_bad_images(ann):
         지금은 x=6567 짜리 1장이 해당되고, 같은 조합의 다른 각도 사진이 있어서 손해가 없다.
     """
     clean = {}
-    for name, boxes in ann.items():  # name: 이미지 파일명, boxes: 박스 리스트
-        # 재민님 코드로 변경 예정
-        flag = True
-        for b in boxes:
-            if not is_valid(b):
-                flag = False
-                break
-        if flag:
+
+    for name, boxes in ann.items():
+        if all(is_valid(b) for b in boxes):
             clean[name] = boxes
-        else:
-            print(f"이미지 제외: {name}")
 
     return clean
 
