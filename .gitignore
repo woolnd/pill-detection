@@ -18,3 +18,10 @@ data/yolo/
 
 # Claude Code 개인 설정 (.claude/settings.json은 팀 공유용이라 커밋)
 .claude/settings.local.json
+
+
+# 학습 결과 (가중치, 그림, 제출 파일)
+runs/
+
+# 모델 가중치 (yolo26n.pt 등 사전학습 모델 자동 다운로드 파일)
+*.pt
