@@ -10,7 +10,7 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
+EPOCHS = 50  # 데이터 전체를 몇 번 반복할지
 IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
 BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
@@ -65,7 +65,7 @@ def get_device():
         3. 둘 다 없으면 "cpu"
     """
     if torch.cuda.is_available():
-        return "cuda"
+        return "0"
     elif torch.backends.mps.is_available():
         return "mps"
     else:
@@ -100,8 +100,73 @@ def train(device):
         deterministic=True,
         project=str(RUNS),
         name=NAME,
-        exist_ok=True
+        exist_ok=True,
         **EXPERIMENT
     )
     return Path(model.trainer.best)
 
+def evaluate(weights, device):
+    """val 데이터로 평가하고 대회 지표 계산
+
+    입력:
+        weights (Path): best.pt 경로
+        device (str): get_device() 결과
+
+    반환:
+        dict: {"mAP50": float, "mAP50-95": float, "mAP75-95": float}
+              mAP75-95 가 대회 지표와 같은 구간이다. (채점 방식이 달라 참고용)
+
+    동작:
+        1. best.pt 를 불러온다.
+        2. val 데이터로 평가한다.
+        3. all_ap (클래스 수 x IoU 10개) 에서 IoU 0.75~0.95 칸만 평균 낸다.
+           IoU 10개 = 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95
+                                                    └── 5번 칸부터 ──┘
+    """
+
+    model = YOLO(weights)
+
+    metrics = model.val(
+        data = str(DATA_YAML),
+        imgsz = IMGSZ,
+        batch = BATCH,
+        device = device,
+        split = "val",
+        project = str(RUNS),
+        name = f"{NAME}_val",
+        exist_ok = True
+    )
+
+    ap = metrics.box.all_ap
+    return {
+        "mAP50": float(metrics.box.map50),
+        "mAP50-95": float(metrics.box.map),
+        "mAP75-95": float(ap[5:].mean())
+    }
+
+def main():
+    """전체 순서
+
+    동작:
+        1. 장치 선택, 이번 실험 이름과 설정 출력
+        2. 학습
+        3. best.pt 로 val 평가 후 점수 출력
+    """
+    # 1. 장치, 실험 정보
+    device = get_device()
+    print("장치:", device)
+    print("실험 이름:", NAME)
+    print("실험 설정:", EXPERIMENT if EXPERIMENT else "기본값")
+
+    # 2. 학습
+    weights = train(device)
+    print("best.pt:", weights)
+
+    # 3. 평가
+    scores = evaluate(weights, device)
+    for k, v in scores.items():
+        print(f"{k}: {v:.4f}")
+
+
+if __name__ == "__main__":
+    main()
