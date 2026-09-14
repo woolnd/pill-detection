@@ -18,7 +18,7 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
+EPOCHS = 50  # 데이터 전체를 몇 번 반복할지
 IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
 BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
@@ -65,15 +65,15 @@ def get_device():
     입력: 없음
 
     반환:
-        str: "cuda" (NVIDIA GPU) / "mps" (맥 GPU) / "cpu"
+        str: "0" (NVIDIA GPU) / "mps" (맥 GPU) / "cpu"
 
     동작:
-        1. NVIDIA GPU 가 있으면 "cuda"
+        1. NVIDIA GPU 가 있으면 "0"
         2. 맥 GPU(mps) 가 있으면 "mps"
         3. 둘 다 없으면 "cpu"
     """
     if torch.cuda.is_available():
-        return "cuda"
+        return "0"
 
     if torch.backends.mps.is_available():
         return "mps"
