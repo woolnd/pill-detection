@@ -6,10 +6,15 @@
       runs/<NAME>/results.csv    epoch 별 loss, mAP, 학습률(lr/pg0)
 """
 
+import os
+from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 import torch
 from ultralytics import YOLO
+
+from sheet import post_to_sheet
 
 # ===== 경로 =====
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +28,7 @@ IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 12
 BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
 NAME = "baseline"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
+MEMO = "기본값 베이스라인"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
 
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
@@ -80,11 +86,41 @@ def get_device():
     return "cpu"
 
 
-def train(device):
-    """사전학습 모델을 우리 데이터로 학습
+def make_train_args(device):
+    """model.train() 에 넘길 기본 인자를 딕셔너리로 만든다
 
     입력:
         device (str): get_device() 결과
+
+    반환:
+        dict: 인자 이름 -> 값
+              예) {"data": ".../data.yaml", "epochs": 50, "imgsz": 640, "batch": 16, "device": "mps",
+                   "seed": 42, "deterministic": True, "project": ".../runs", "name": "baseline", "exist_ok": True}
+
+    동작:
+        1. 위 설정값(상수)으로 딕셔너리를 만든다.
+           학습(train)과 기록(save_scores)이 이 딕셔너리 하나를 같이 써서, 기록된 값 = 실제 학습한 값이 된다.
+        (EXPERIMENT 는 여기 넣지 않고 따로 넘긴다. 같은 이름이 겹치면 에러가 나서 실수를 막아준다)
+    """
+    return {
+        "data": str(DATA_YAML),
+        "epochs": EPOCHS,
+        "imgsz": IMGSZ,
+        "batch": BATCH,
+        "device": device,
+        "seed": SEED,
+        "deterministic": True,  # 같은 설정이면 같은 결과
+        "project": str(RUNS),
+        "name": NAME,
+        "exist_ok": True,  # 같은 이름 폴더가 있으면 덮어쓰기
+    }
+
+
+def train(args):
+    """사전학습 모델을 우리 데이터로 학습
+
+    입력:
+        args (dict): make_train_args() 결과
 
     반환:
         Path: 가장 좋은 가중치 파일 경로
@@ -92,27 +128,17 @@ def train(device):
 
     동작:
         1. 사전학습 모델을 불러온다.
-        2. data.yaml, 기본 설정값, EXPERIMENT 값으로 학습한다.
-           (**EXPERIMENT 는 딕셔너리를 "이름=값" 인자로 풀어서 넘긴다. 비어 있으면 아무것도 안 넘김)
+        2. 기본 인자(args)와 EXPERIMENT 값으로 학습한다.
+           (**딕셔너리 는 딕셔너리를 "이름=값" 인자로 풀어서 넘긴다)
         3. 학습 중 val 점수가 가장 좋았던 best.pt 경로를 반환한다.
     """
-
+    # 1. 사전학습 모델
     model = YOLO(MODEL)
 
-    model.train(
-        data=str(DATA_YAML),
-        epochs=EPOCHS,
-        imgsz=IMGSZ,
-        batch=BATCH,
-        device=device,
-        seed=SEED,
-        deterministic=True,
-        project=str(RUNS),
-        name=NAME,
-        exist_ok=True,
-        **EXPERIMENT,
-    )
+    # 2. 학습
+    model.train(**args, **EXPERIMENT)
 
+    # 3. best.pt 경로
     return Path(model.trainer.best)
 
 
@@ -152,32 +178,89 @@ def evaluate(weights, device):
     return {
         "mAP50": float(metrics.box.map50),
         "mAP50-95": float(metrics.box.map),
-        "mAP75-95": float(ap[:, 5].mean()),
+        "mAP75-95": float(ap[:, 5:].mean()),
     }
+
+
+def save_scores(scores, args):
+    """이번 실험의 점수와 학습 인자를 csv 와 구글 시트에 기록한다
+
+    입력:
+        scores (dict): evaluate() 결과
+                       예) {"mAP50": 0.7876, "mAP50-95": 0.7550, "mAP75-95": 0.7225}
+        args (dict): make_train_args() 결과 (학습에 실제로 넘긴 인자)
+
+    반환:
+        Path: csv 기록 파일 경로  예) runs/experiments.csv
+
+    동작:
+        1. 시간, 메모, 점수, 모델 이름, 실험 설정(글자)으로 한 줄을 시작한다.
+        2. 학습 인자(args)와 실험용 인자(EXPERIMENT)를 뒤에 붙인다.
+        3. 기존 csv 가 있으면 읽어서 아래에 합친다. (열이 달라도 concat 이 맞춰준다. 빈칸 = 기본값)
+        4. csv 를 저장한다.
+        5. 같은 줄을 구글 시트에도 보낸다.
+           (시트는 정해진 열만 받는다. 인터넷 문제로 실패해도 csv 는 이미 저장돼서 기록이 사라지지 않는다)
+    """
+    path = RUNS / "experiments.csv"
+
+    # 1. 기본 정보 + 점수
+    row = {
+        "time": datetime.now().strftime("%m-%d %H:%M"),
+        "author": os.environ.get("AUTHOR", ""),  # 각자 .env 의 AUTHOR (없으면 빈칸)
+        "memo": MEMO,
+        "mAP50": round(scores["mAP50"], 4),
+        "mAP50-95": round(scores["mAP50-95"], 4),
+        "mAP75-95": round(scores["mAP75-95"], 4),
+        "model": MODEL,
+        "experiment": str(EXPERIMENT),  # 시트용: 바꾼 값을 한 칸에
+    }
+
+    # 2. 학습 인자 붙이기
+    row.update(args)  # model.train() 기본 인자 (epochs, imgsz, batch, name ...)
+    row.update(EXPERIMENT)  # 실험용 인자 (lr0, box ...)
+
+    # 3. 기존 기록과 합치기
+    table = pd.DataFrame([row])
+    if path.exists():
+        old = pd.read_csv(path, encoding="utf-8-sig")
+        table = pd.concat([old, table], ignore_index=True)
+
+    # 4. csv 저장
+    table.to_csv(path, index=False, encoding="utf-8-sig")
+
+    # 5. 구글 시트 전송
+    try:
+        print("시트 전송:", post_to_sheet({"action": "append", "row": row}))
+    except Exception as e:
+        print("시트 전송 실패 (csv 에는 저장됨):", e)
+    return path
 
 
 def main():
     """전체 순서
 
     동작:
-        1. 장치 선택, 이번 실험 이름과 설정 출력
+        1. 장치 선택, 학습 인자 만들기, 실험 정보 출력
         2. 학습
-        3. best.pt 로 val 평가 후 점수 출력
+        3. best.pt 로 val 평가 후 점수 출력 + csv·구글 시트에 기록
     """
-    # 1. 장치, 실험 정보
+    # 1. 장치, 학습 인자, 실험 정보
     device = get_device()
-    print("장치:", device)
+    args = make_train_args(device)
     print("실험 이름:", NAME)
+    print("메모:", MEMO)
+    print("학습 인자:", args)
     print("실험 설정:", EXPERIMENT if EXPERIMENT else "기본값")
 
     # 2. 학습
-    weights = train(device)
+    weights = train(args)
     print("best.pt:", weights)
 
-    # 3. 평가
+    # 3. 평가 + 기록
     scores = evaluate(weights, device)
     for k, v in scores.items():
         print(f"{k}: {v:.4f}")
+    print("실험 기록:", save_scores(scores, args))
 
 
 if __name__ == "__main__":
