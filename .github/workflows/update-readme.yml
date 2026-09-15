@@ -2,7 +2,7 @@ name: README 실험 그래프 업데이트
 
 on:
   repository_dispatch:
-    types: [sheet-updated] # 구글 시트(Apps Script)가 실험 기록을 추가하면 보내는 신호
+    types: [sheet-updated] # 구글 시트(Apps Script)가 실험 기록 추가 · kaggle_score 입력 시 보내는 신호
   workflow_dispatch: # Actions 탭의 Run workflow 버튼
 
 permissions:
@@ -31,15 +31,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet README.md; then
-            echo "README 변경 없음"
+          # README 와 그래프 파일(docs/images) 중 바뀐 게 없으면 끝 (새 파일도 잡으려고 status 사용)
+          if [ -z "$(git status --porcelain README.md docs/images)" ]; then
+            echo "README · 그래프 변경 없음"
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C docs/readme-graph
-          git commit -am "docs: README 실험 그래프 업데이트"
+          git add README.md docs/images
+          git commit -m "docs: README 실험 그래프 업데이트"
           git push --force origin docs/readme-graph
 
           open_pr=$(gh pr list --head docs/readme-graph --state open --json number --jq '.[].number')
