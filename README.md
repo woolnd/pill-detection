@@ -8,7 +8,7 @@ YOLO로 이미지 속 알약을 탐지하고 종류를 분류하는 프로젝트
 - **평가**: Kaggle 리더보드 **mAP[0.75:0.95]**, 최종 순위는 Private Score 기준
 - **팀**: 4명 / 기간 약 4일
 
-최신 실험 그래프와 Kaggle 점수 순위는 [실험 기록](#실험-기록)에서 볼 수 있습니다.
+Kaggle 점수 TOP 5 순위는 [실험 기록](#실험-기록)에서 볼 수 있습니다.
 
 ## 시작하기
 
@@ -188,45 +188,17 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 ## 실험 기록
 
 <!-- 실험그래프 시작 -->
-### 📅 9월 15일 실험
-
-![9월 15일 실험](docs/images/experiments_today.svg)
-
-| 순서 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
-|---|---|---|---|---|---|---|
-| 1 | 09-15 10:06 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
-| 2 | 09-15 10:17 | baseline | 윤성원 | 기본값 베이스라인 | 0.7939 |  |
-| 3 | 09-15 10:22 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 |  |
-| 4 | 09-15 10:46 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 | 0.1 |
-| 5 | 09-15 11:05 | experiment_01 | 신재민 | 기본값 베이스라인 | 0.7201 |  |
-| 6 | 09-15 11:06 | imgsz960_ep50 | 김라희 | imgsz 960, epochs 50로 변경 (해상도 ↑, 학습시간 조절) | 0.9157 | 0.35544 |
-| 7 | 09-15 11:23 | experiment_01 | 신재민 | 기본값 베이스라인 | 0.7999 |  |
-| 8 | 09-15 11:31 | experiment_01 | 신재민 | 기본값 베이스라인 | 0.7999 |  |
-| 9 | 09-15 11:41 | baseline | 윤성원 | 기본값 베이스라인 | 0.8855 | 0.37169 |
-| 10 | 09-15 11:47 | experiment_01 | 신재민 | 기본값 베이스라인 | 0.7999 |  |
-| 11 | 09-15 16:09 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 | 0.9321 | 0.39139 |
-| 12 | 09-15 16:22 | imgsz960, ep100 | 윤성원 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 | 0.9401 | 0.39275 |
-| 13 | 09-15 16:49 | experiment_02_epoch100 | 신재민 | epochs: 100 / imgsz: 960 / batch: 16 / lr: 0.001 | 0.9029 |  |
-| 14 | 09-15 17:16 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 | 0.9146 | 0.3658 |
-| 15 | 09-15 17:34 | experiment_03_imgsz1280 | 신재민 | epochs: 100 / imgsz: 1280 / batch: 8 / lr: 0.001 | 0.9255 | 0.32 |
-| 16 | 09-15 17:35 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) | 0.9534 | 0.39071 |
-| 17 | 09-15 17:43 | imgsz960, ep100 | 윤성원 | 가설 하이퍼파라미터를 따르되 epoch를 100으로 조절함 patience50으로 중간에 더 이상 변화가 없으면 중단 | 0.9368 |  |
-
-### 🏆 Kaggle 점수 순위
+### 🏆 Kaggle 점수 TOP 5
 
 ![Kaggle 점수 순위](docs/images/experiments_best.svg)
 
-| 순위 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
+| 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |
 |---|---|---|---|---|---|---|
-| 1 | 09-15 16:22 | imgsz960, ep100 | 윤성원 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 | 0.9401 | 0.39275 |
-| 2 | 09-15 16:09 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 | 0.9321 | 0.39139 |
-| 3 | 09-15 17:35 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) | 0.9534 | 0.39071 |
-| 4 | 09-15 11:41 | baseline | 윤성원 | 기본값 베이스라인 | 0.8855 | 0.37169 |
-| 5 | 09-15 17:16 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 | 0.9146 | 0.3658 |
-| 6 | 09-15 11:06 | imgsz960_ep50 | 김라희 | imgsz 960, epochs 50로 변경 (해상도 ↑, 학습시간 조절) | 0.9157 | 0.35544 |
-| 7 | 09-15 17:34 | experiment_03_imgsz1280 | 신재민 | epochs: 100 / imgsz: 1280 / batch: 8 / lr: 0.001 | 0.9255 | 0.32 |
-| 8 | 09-14 17:23 | baseline | 김라희 | 기본값 베이스라인 | 0.7179 | 0.235552 |
-| 9 | 09-15 10:46 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 | 0.1 |
+| 1 | 0.39275 | imgsz960, ep200 | 윤성원 | 0.9401 | 09-15 16:22 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 |
+| 2 | 0.39139 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | 0.9321 | 09-15 16:09 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 |
+| 3 | 0.39071 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | 0.9534 | 09-15 17:35 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) |
+| 4 | 0.37169 | baseline | 윤성원 | 0.8855 | 09-15 11:41 | 기본값 베이스라인 |
+| 5 | 0.3658 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | 0.9146 | 09-15 17:16 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 |
 <!-- 실험그래프 끝 -->
 
 ## 실험 기록 자동화
@@ -338,6 +310,3 @@ refactor: 전처리 스크립트 리팩토링
 | 09-10 | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-10-3d777fa64f7f8011a5fff6741aa963e0?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-10-3d777fa64f7f807fbe4ccff5b42ed249?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/09-10Daily-3d777fa64f7f8038a483e9c31208eccb?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-10-3d777fa64f7f80bcab5cc5a66ead2e4a?source=copy_link) |
 | 09-11 | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-11-3d877fa64f7f806980ddd7e45f4a2ca3?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-11-3d877fa64f7f804e9cb5dfc1a8e21cec?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/09-11Daily-3d877fa64f7f80898b9ee0aa0779e13f?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-11-3d877fa64f7f80ff9004eaf0e55b2328?source=copy_link) |
 | 09-14 | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-14-3db77fa64f7f801592fde3c9620f62ea?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-14-3db77fa64f7f80309ad5ee063b2dbd33?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/09-11Daily-3db77fa64f7f80d69c09d018888a360a?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-14-3db77fa64f7f800483c3e382ec222b57?source=copy_link) |
-| 09-15 | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-15-3dc77fa64f7f802db9c7c4ece66ef915?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-15-3dc77fa64f7f8060a4ddf31fe213a441?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/09-15Daily-3dc77fa64f7f8024a953ea2277fea760?source=copy_link) | [📝](https://smoggy-gymnast-0ed.notion.site/26-09-15-3dc77fa64f7f80618184ec4d933baba7?source=copy_link) |
-
-
