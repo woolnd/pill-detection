@@ -48,6 +48,9 @@ COLORS = {
     "FN": "yellow",
 }
 
+# 글자 뒤에 까는 반투명 검은 배경 (밝은 알약 위에서도 글자가 보이게)
+TEXT_BOX = {"facecolor": "black", "alpha": 0.6, "pad": 1, "edgecolor": "none"}
+
 
 # ---------- 1. 예측 ----------
 def predict_val(model, device):
@@ -244,11 +247,14 @@ def draw(ax, image_path, results):
     동작:
         1. 이미지를 띄운다.
         2. 결과마다
-           a. 정답이 있으면 흰 점선으로 그린다.
-           b. 예측이 있으면 분류 색 실선 + "분류 약ID 신뢰도 IoU" 글자
-              (DUP 는 짝 박스와 글자가 겹쳐서 박스 아래에 쓴다)
-           c. 예측이 없으면(FN) 정답 위치에 노란 실선 + "FN 약ID"
+           a. 짝지어진 정답은 흰 점선 + 박스 아래에 "GT 약ID"
+           b. 놓친 정답(FN)은 노란 실선 + 박스 아래에 "FN GT 약ID"
+              (같은 자리에 정답 라벨이 두 개인 경우가 있어서 a 보다 한 줄 더 아래)
+           c. 예측은 분류 색 실선 + 박스 위에 "분류 약ID 신뢰도 IoU"
+              (DUP 는 같은 알약의 다른 예측 글자와 겹쳐서 한 줄 더 위)
         3. 제목에 파일명을 쓰고 축을 끈다.
+
+    정답 = 박스 아래 글자, 예측 = 박스 위 글자. 글자에는 TEXT_BOX 배경을 깐다.
     """
 
     # 1. 이미지
@@ -259,8 +265,8 @@ def draw(ax, image_path, results):
         p = r["pred"]
         gt = r["gt"]
 
-        # 2-a. 정답
-        if gt is not None:
+        # 2-a. 짝지어진 정답: 흰 점선 + 아래 글자
+        if gt is not None and r["status"] != "FN":
             ax.add_patch(
                 Rectangle(
                     (gt["x"], gt["y"]),
@@ -271,8 +277,37 @@ def draw(ax, image_path, results):
                     linestyle="--",
                 )
             )
+            ax.text(
+                gt["x"],
+                gt["y"] + gt["h"] + 35,  # 박스 아래
+                f"GT {gt['class_id']}",
+                color="white",
+                fontsize=7,
+                bbox=TEXT_BOX,
+            )
 
-        # 2-b. 예측
+        # 2-b. 놓친 정답(FN): 노란 실선 + 아래 글자 (한 줄 더 아래)
+        if r["status"] == "FN":
+            ax.add_patch(
+                Rectangle(
+                    (gt["x"], gt["y"]),
+                    gt["w"],
+                    gt["h"],
+                    fill=False,
+                    edgecolor=color,
+                    linewidth=2,
+                )
+            )
+            ax.text(
+                gt["x"],
+                gt["y"] + gt["h"] + 70,  # 박스 아래 두 번째 줄
+                f"FN GT {gt['class_id']}",
+                color=color,
+                fontsize=7,
+                bbox=TEXT_BOX,
+            )
+
+        # 2-c. 예측: 분류 색 실선 + 위 글자
         if p is not None:
             ax.add_patch(
                 Rectangle(
@@ -285,27 +320,11 @@ def draw(ax, image_path, results):
                 )
             )
             if r["status"] == "DUP":
-                text_y = p["y"] + p["h"] + 30  # 박스 아래
+                text_y = p["y"] - 43  # 박스 위 두 번째 줄
             else:
-                text_y = p["y"] - 5  # 박스 위
+                text_y = p["y"] - 8  # 박스 위
             text = f"{r['status']} {p['class_id']} {p['score']:.2f} iou{r['iou']:.2f}"
-            ax.text(p["x"], text_y, text, color=color, fontsize=7)
-
-        # 2-c. 놓침
-        else:
-            ax.add_patch(
-                Rectangle(
-                    (gt["x"], gt["y"]),
-                    gt["w"],
-                    gt["h"],
-                    fill=False,
-                    edgecolor=color,
-                    linewidth=2,
-                )
-            )
-            ax.text(
-                gt["x"], gt["y"] - 5, f"FN {gt['class_id']}", color=color, fontsize=7
-            )
+            ax.text(p["x"], text_y, text, color=color, fontsize=7, bbox=TEXT_BOX)
 
     # 3. 제목 (파일명이 길어서 40자까지)
     ax.set_title(image_path.name[:40], fontsize=7)
