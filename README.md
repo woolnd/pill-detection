@@ -157,6 +157,22 @@ refactor: 전처리 스크립트 리팩토링
 ## 실험 기록
 
 <!-- 실험그래프 시작 -->
-(구글 시트 기록으로 자동 갱신되는 영역입니다. 직접 수정하지 마세요.)
+```mermaid
+xychart-beta
+    title "최근 실험 7개 val mAP75-95 (시간순)"
+    x-axis ["baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline"]
+    y-axis "mAP75-95" 0 --> 1
+    line [0.7179, 0.7225, 0.0, 0.0, 0.0, 0.7939, 0.1101]
+```
+
+| 순서 | name | author | memo | val mAP75-95 | kaggle_score |
+|---|---|---|---|---|---|
+| 1 | baseline | 김라희 | 기본값 베이스라인 | 0.7179 | 0.235552 |
+| 2 | baseline | 엄재웅 | 기본값 베이스라인 | 0.7225 |  |
+| 3 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
+| 4 | baseline | 신재민 | 기본값 베이스라인 | 0 |  |
+| 5 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
+| 6 | baseline | 윤성원 | 기본값 베이스라인 | 0.7939 |  |
+| 7 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 |  |
 <!-- 실험그래프 끝 -->
 
