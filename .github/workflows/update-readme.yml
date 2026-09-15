@@ -1,0 +1,52 @@
+name: README 실험 그래프 업데이트
+
+on:
+  repository_dispatch:
+    types: [sheet-updated] # 구글 시트(Apps Script)가 실험 기록을 추가하면 보내는 신호
+  workflow_dispatch: # Actions 탭의 Run workflow
+
+permissions:
+  contents: write # 브랜치 push
+  pull-requests: write # PR 만들기
+
+concurrency:
+  group: readme-graph # 신호가 여러 번 와도 한 번에 하나씩
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: main 코드 받기
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: 시트 읽어서 README 그래프 갱신
+        env:
+          SHEET_URL: ${{ secrets.SHEET_URL }}
+        run: python3 src/plot_experiments.py
+
+      - name: README 가 바뀌었으면 PR 만들기 (머
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet README.md; then
+            echo "README 변경 없음"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+githuby.github.com"
+          git switch -C docs/readme-graph
+          git commit -am "docs: README 실험 그래
+          git push --force origin docs/readme-graph
+
+          open_pr=$(gh pr list --head docs/readme-graph --state open --json number --jq '.[].number')
+          if [ -z "$open_pr" ]; then
+            gh pr create --base main --head docs/readme-graph \
+              --title "[Docs] README 실험 그래프
+              --body "구글 시트 실험 기록으로 README 실험 그래프를 자동 갱신했습니다. 확인 후 머지해 주세요."
+          else
+            echo "열려 있는 PR #$open_pr 에 갱신 반영"
+          fi
