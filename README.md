@@ -157,22 +157,24 @@ refactor: 전처리 스크립트 리팩토링
 ## 실험 기록
 
 <!-- 실험그래프 시작 -->
-```mermaid
-xychart-beta
-    title "최근 실험 7개 val mAP75-95 (시간순)"
-    x-axis ["baseline", "baseline", "baseline", "baseline", "baseline", "baseline", "baseline"]
-    y-axis "mAP75-95" 0 --> 1
-    line [0.7179, 0.7225, 0.0, 0.0, 0.0, 0.7939, 0.1101]
-```
+### 📅 9월 15일 실험
 
-| 순서 | name | author | memo | val mAP75-95 | kaggle_score |
-|---|---|---|---|---|---|
-| 1 | baseline | 김라희 | 기본값 베이스라인 | 0.7179 | 0.235552 |
-| 2 | baseline | 엄재웅 | 기본값 베이스라인 | 0.7225 |  |
-| 3 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
-| 4 | baseline | 신재민 | 기본값 베이스라인 | 0 |  |
-| 5 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
-| 6 | baseline | 윤성원 | 기본값 베이스라인 | 0.7939 |  |
-| 7 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 |  |
+![9월 15일 실험](docs/images/experiments_today.svg)
+
+| 순서 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
+|---|---|---|---|---|---|---|
+| 1 | 09-15 10:06 | baseline | 윤성원 | 기본값 베이스라인 | 0 |  |
+| 2 | 09-15 10:17 | baseline | 윤성원 | 기본값 베이스라인 | 0.7939 |  |
+| 3 | 09-15 10:22 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 |  |
+| 4 | 09-15 10:46 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 | 0.1 |
+
+### 🏆 Kaggle 점수 순위
+
+![Kaggle 점수 순위](docs/images/experiments_best.svg)
+
+| 순위 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
+|---|---|---|---|---|---|---|
+| 1 | 09-14 17:23 | baseline | 김라희 | 기본값 베이스라인 | 0.7179 | 0.235552 |
+| 2 | 09-15 10:46 | baseline | 엄재웅 | 기본값 베이스라인 | 0.1101 | 0.1 |
 <!-- 실험그래프 끝 -->
 
