@@ -10,7 +10,7 @@ permissions:
   pull-requests: write # PR 만들기
 
 concurrency:
-  group: readme-graph # 신호가 여러 번 와도 한
+  group: readme-graph  # 신호가 여러 번 와도 한 번에 하나씩
   cancel-in-progress: false
 
 jobs:
@@ -36,17 +36,17 @@ jobs:
             exit 0
           fi
 
-           git config user.name "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -C docs/readme-graph
           git commit -am "docs: README 실험 그래프 업데이트"
-          git push --force origin docs/readme-g
+          git push --force origin docs/readme-graph
 
-          open_pr=$(gh pr list --head docs/readon number --jq '.[].number')
+          open_pr=$(gh pr list --head docs/readme-graph --state open --json number --jq '.[].number')
           if [ -z "$open_pr" ]; then
-            gh pr create --base main --head doc
+            gh pr create --base main --head docs/readme-graph \
               --title "[Docs] README 실험 그래프 업데이트" \
-              --body "구글 시트 실험 기록으로 R 신했습니다. 확인 후 머지해 주세요."
+              --body "구글 시트 실험 기록으로 README 실험 그래프를 자동 갱신했습니다. 확인 후 머지해 주세요."
           else
             echo "열려 있는 PR #$open_pr 에 갱신 반영"
           fi
