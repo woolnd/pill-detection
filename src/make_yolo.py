@@ -1,302 +1,601 @@
 """COCO JSON -> YOLO 형식 변환 + train/val 분할
 
-실행: uv run python src/make_yolo.py
-결과: data/yolo/
-        ├── images/train/, images/val/   이미지 복사본
-        ├── labels/train/, labels/val/   YOLO 라벨 txt
-        └── data.yaml                    학습 설정
+실행:
+    uv run python src/make_yolo.py
 
-박스 딕셔너리 b 의 모양 (annotations.py 참고):
-    {"x": 167, "y": 248, "w": 184, "h": 182, "class_id": 1900, "class_name": "..."}
+결과:
+    data/yolo/
+        ├── images/train/
+        ├── images/val/
+        ├── labels/train/
+        ├── labels/val/
+        └── data.yaml
+
+전처리:
+    1. 라벨 없는 이미지도 유지
+    2. 완전히 동일한 중복 라벨은 하나만 유지
+    3. 이미지 밖으로 나간 bbox는 이미지 안으로 보정
+    4. 모든 클래스가 train에 최소 1번 이상 포함되도록 분할
+    5. 같은 combo의 이미지는 train/val에 섞이지 않도록 유지
 """
 
 import random
 import shutil
+from collections import Counter
 from pathlib import Path
 
 from annotations import RAW, load_annotations
 
+
 # ===== 설정값 =====
-OUT = Path(__file__).resolve().parent.parent / "data" / "yolo"  # 결과 저장 위치
-VAL_RATIO = 0.2  # val 비율 (조합 기준 20%)
-SEED = 42  # 랜덤 고정 -> 누가 돌려도 같은 분할
-IMG_W, IMG_H = 976, 1280  # 모든 이미지 크기 (train/test 1074장 전부 확인함)
+OUT = Path(__file__).resolve().parent.parent / "data" / "yolo"
+
+VAL_RATIO = 0.2
+SEED = 42
+
+# 모든 이미지 크기
+IMG_W, IMG_H = 976, 1280
 
 
-# ---------- 1. 이상한 박스 걸러내기 ----------
-def is_valid(b):
-    """박스가 이미지 안에 제대로 들어있는지 검사
-
-    입력:
-        b (dict): 박스 1개
-    반환:
-        bool: 네 조건을 모두 만족하면 True, 하나라도 어기면 False
-            - 왼쪽 끝(x)이 0 이상
-            - 위쪽 끝(y)이 0 이상
-            - 오른쪽 끝(x + w)이 이미지 너비 이하
-            - 아래쪽 끝(y + h)이 이미지 높이 이하
-    """
-
-    return (
-        b["x"] >= 0
-        and b["y"] >= 0
-        and b["x"] + b["w"] <= IMG_W
-        and b["y"] + b["h"] <= IMG_H
-    )
-
-
-def remove_bad_images(ann):
-    """이상한 박스가 하나라도 있는 이미지를 통째로 뺀다
+# ---------- 1. bbox 보정 ----------
+def fix_bbox(b):
+    """이미지 밖으로 나간 bbox를 이미지 안쪽으로 보정한다.
 
     입력:
-        ann (dict): load_annotations() 결과. 이미지 파일명 -> 박스 리스트
+        b (dict):
+            {
+                "x": ...,
+                "y": ...,
+                "w": ...,
+                "h": ...,
+                "class_id": ...,
+                "class_name": ...
+            }
 
     반환:
-        dict: 같은 모양의 dict. 이상한 이미지만 빠져 있다.
+        dict:
+            보정된 bbox
 
-    동작:
-        1. 이미지를 하나씩 보면서
-        2. 그 이미지의 박스가 전부 is_valid() 이면 결과에 넣고
-        3. 하나라도 아니면 넣지 않고 파일명을 출력한다.
-
-    박스 하나만 빼지 않고 이미지째 빼는 이유:
-        박스만 빼면 그 알약이 '라벨 없는 배경'으로 학습돼서 모델이 헷갈린다.
-        지금은 x=6567 짜리 1장이 해당되고, 같은 조합의 다른 각도 사진이 있어서 손해가 없다.
+        None:
+            이미지와 완전히 겹치지 않아 사용할 수 없는 bbox
     """
+
+    # bbox의 왼쪽 위 좌표
+    x1 = max(0, b["x"])
+    y1 = max(0, b["y"])
+
+    # bbox의 오른쪽 아래 좌표
+    x2 = min(IMG_W, b["x"] + b["w"])
+    y2 = min(IMG_H, b["y"] + b["h"])
+
+    # 보정된 너비와 높이
+    w = x2 - x1
+    h = y2 - y1
+
+    # 이미지와 완전히 겹치지 않는 bbox
+    if w <= 0 or h <= 0:
+        return None
+
+    # 기존 bbox를 복사해서 수정
+    fixed = b.copy()
+
+    fixed["x"] = x1
+    fixed["y"] = y1
+    fixed["w"] = w
+    fixed["h"] = h
+
+    return fixed
+
+
+# ---------- 2. 데이터 전처리 ----------
+def preprocess_annotations(ann):
+    """데이터를 최대한 유지하면서 학습 가능한 형태로 전처리한다.
+
+    전처리 기준:
+        - 라벨 없는 이미지: 유지
+        - 완전히 동일한 중복 라벨: 중복 제거
+        - 이미지 밖 bbox: 이미지 안으로 보정
+        - 보정 후 사용할 수 없는 bbox: 해당 bbox만 제외
+        - bbox가 모두 사라져도 이미지 자체는 유지
+    """
+
     clean = {}
 
+    # 통계 출력용
+    no_label_count = 0
+    duplicate_count = 0
+    clipped_count = 0
+    removed_box_count = 0
+
     for name, boxes in ann.items():
-        if all(is_valid(b) for b in boxes):
-            clean[name] = boxes
+
+        # --------------------------------
+        # 1. 라벨 없는 이미지도 유지
+        # --------------------------------
+        if not boxes:
+            clean[name] = []
+            no_label_count += 1
+            continue
+
+        new_boxes = []
+        seen = set()
+
+        for b in boxes:
+
+            # --------------------------------
+            # 2. 완전히 동일한 중복 라벨 제거
+            # --------------------------------
+            key = (
+                b["x"],
+                b["y"],
+                b["w"],
+                b["h"],
+                b["class_id"],
+            )
+
+            if key in seen:
+                duplicate_count += 1
+                continue
+
+            seen.add(key)
+
+            # --------------------------------
+            # 3. bbox가 이미지 밖으로 나간 경우 보정
+            # --------------------------------
+            original = (
+                b["x"],
+                b["y"],
+                b["w"],
+                b["h"],
+            )
+
+            fixed = fix_bbox(b)
+
+            # 이미지와 완전히 겹치지 않는 bbox
+            if fixed is None:
+                removed_box_count += 1
+                continue
+
+            fixed_box = (
+                fixed["x"],
+                fixed["y"],
+                fixed["w"],
+                fixed["h"],
+            )
+
+            if original != fixed_box:
+                clipped_count += 1
+
+            new_boxes.append(fixed)
+
+        # bbox가 전부 없어졌더라도 이미지 자체는 유지
+        clean[name] = new_boxes
+
+    # 전처리 결과 출력
+    print("\n[전처리 결과]")
+    print(f"라벨 없는 이미지: {no_label_count}장")
+    print(f"중복 라벨 제거: {duplicate_count}개")
+    print(f"이미지 밖 bbox 보정: {clipped_count}개")
+    print(f"사용할 수 없어 제거된 bbox: {removed_box_count}개")
 
     return clean
 
 
-# ---------- 2. 클래스 번호 만들기 ----------
+# ---------- 3. 클래스 번호 만들기 ----------
 def make_class_map(ann):
-    """약 ID(1900, 2483, ...)를 YOLO 번호(0, 1, 2, ...)로 바꾸는 표를 만든다
+    """약 ID를 YOLO 클래스 번호로 변환하는 표를 만든다.
 
-    입력:
-        ann (dict): 이미지 파일명 -> 박스 리스트
+    예:
+        약 ID
+        1900
+        2483
+        3351
 
-    반환:
-        class_ids (list): 약 ID를 작은 순서로 정렬한 리스트
-                          예) [1900, 2483, 3351, ..., 41768]
-                          -> 리스트 위치(인덱스)가 곧 YOLO 번호다. data.yaml 만들 때 쓴다.
-        class_to_idx (dict): 약 ID -> YOLO 번호
-                          예) {1900: 0, 2483: 1, 3351: 2, ...}
-                          -> 라벨 txt 쓸 때 약 ID를 번호로 바꾸는 데 쓴다.
+        ↓
 
-    동작:
-        1. 모든 박스의 class_id 를 set 으로 모아 중복을 없앤다.
-        2. 정렬한다. (정렬해야 누가 돌려도 같은 번호가 나온다)
-        3. 순서대로 0, 1, 2 ... 번호를 붙인다.
-
-    YOLO는 0부터 빈틈 없이 이어지는 번호만 받는다.
+        YOLO 클래스 번호
+        0
+        1
+        2
     """
-    # 1~2. 모든 박스의 약 ID -> 중복 제거 -> 정렬
-    class_ids = sorted({b["class_id"] for boxes in ann.values() for b in boxes})
 
-    # 3. enumerate 로 (번호, 약 ID) 를 꺼내서 {약 ID: 번호} 로 뒤집는다
-    class_to_idx = {id: i for i, id in enumerate(class_ids)}
+    # 모든 bbox에서 class_id를 가져와 중복 제거 후 정렬
+    class_ids = sorted(
+        {
+            b["class_id"]
+            for boxes in ann.values()
+            for b in boxes
+        }
+    )
+
+    # 약 ID -> YOLO 클래스 번호
+    class_to_idx = {
+        class_id: i
+        for i, class_id in enumerate(class_ids)
+    }
+
     return class_ids, class_to_idx
 
+def print_class_counts(ann):
+    """클래스별 bbox 개수를 출력한다."""
 
-# ---------- 3. 좌표 변환 ----------
+    counts = Counter(
+        b["class_id"]
+        for boxes in ann.values()
+        for b in boxes
+    )
+
+    print("\n[클래스별 데이터 개수]")
+    print(f"전체 클래스 수: {len(counts)}개")
+
+    for class_id, count in sorted(counts.items()):
+        print(f"class_id {class_id}: {count}개")
+
+
+# ---------- 4. COCO -> YOLO 좌표 변환 ----------
 def to_yolo_line(b, idx):
-    """박스 1개를 YOLO 라벨 한 줄(문자열)로 바꾼다
+    """bbox 하나를 YOLO 형식 한 줄로 변환한다.
 
-    입력:
-        b (dict): 박스 1개 (COCO 좌표: 왼쪽 위 x, y, 너비, 높이 / 픽셀)
-        idx (int): 이 박스의 YOLO 클래스 번호 (class_to_idx 로 바꾼 값)
+    YOLO 형식:
+        class_id center_x center_y width height
 
-    반환:
-        str: "클래스번호 중심x 중심y 너비 높이" (좌표는 0~1 비율, 소수점 6자리)
-             예) "0 0.265369 0.264844 0.188525 0.142187"
-
-    동작:
-        1. 중심 = 왼쪽 위 + 크기의 절반
-        2. 픽셀 값을 이미지 크기로 나눠서 0~1 비율로 만든다.
-        3. 공백으로 이어 붙인다.
+    좌표는 모두 0~1 사이의 비율로 변환한다.
     """
+
+    # 중심 좌표
     cx = (
         b["x"] + (b["w"] / 2)
-    ) / IMG_W  # 중심 x: 왼쪽 끝 + 너비 절반, 이미지 너비로 나눔
+    ) / IMG_W
+
     cy = (
         b["y"] + (b["h"] / 2)
-    ) / IMG_H  # 중심 y: 위쪽 끝 + 높이 절반, 이미지 높이로 나눔
-    w = b["w"] / IMG_W  # 너비 비율
-    h = b["h"] / IMG_H  # 높이 비율
+    ) / IMG_H
+
+    # 너비 / 높이
+    w = b["w"] / IMG_W
+    h = b["h"] / IMG_H
+
     return f"{idx} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
 
 
-# ---------- 4. train / val 나누기 ----------
+# ---------- 5. combo ID 가져오기 ----------
 def get_combo(name):
-    """파일명에서 조합 ID 부분만 꺼낸다
+    """파일명에서 combo ID를 가져온다.
 
-    입력:
-        name (str): 이미지 파일명
-                    예) "K-001900-016548-019607-029451_0_2_0_2_70_000_200.png"
+    예:
+        K-001900-016548-019607-029451_0_2_0_2_70_000_200.png
 
-    반환:
-        str: 첫 번째 "_" 앞부분
-             예) "K-001900-016548-019607-029451"
-
-    같은 조합을 각도만 바꿔 찍은 사진 3장은 이 값이 같다.
+    결과:
+        K-001900-016548-019607-029451
     """
+
     return name.split("_", 1)[0]
 
 
-def split_by_combo(names):
-    """이미지 목록을 조합 단위로 train / val 로 나눈다
+# ---------- 6. train / val 분할 ----------
+def split_by_combo(names, ann):
+    """combo 단위로 train / val을 나눈다.
 
-    입력:
-        names (list): 이미지 파일명 리스트 (정렬된 상태로 넣는다)
-
-    반환:
-        train (list): train 에 들어갈 이미지 파일명 리스트
-        val (list): val 에 들어갈 이미지 파일명 리스트
-
-    동작:
-        1. 파일명마다 조합 ID를 뽑고 중복을 없애서 정렬한다. (114개)
-        2. 시드를 고정하고 섞는다.
-        3. 앞에서 20% 조합을 val 로 정한다.
-        4. 이미지마다 조합이 val 쪽이면 val, 아니면 train 에 넣는다.
-
-    이미지가 아니라 조합으로 나누는 이유:
-        같은 조합의 70°/75°/90° 사진이 train과 val에 나뉘어 들어가면
-        거의 같은 사진을 보고 시험 치는 셈이라 val 점수가 실제보다 좋게 나온다.
+    조건:
+        1. 같은 combo는 train/val에 섞이지 않는다.
+        2. 기본적으로 val은 20%로 구성한다.
+        3. 모든 클래스가 train에 최소 1번 이상 등장하도록 조정한다.
     """
-    # 1. 조합 ID 목록 (정렬해야 섞기 전 순서가 매번 같다)
-    combos = sorted(set(get_combo(name) for name in names))
 
-    # 2. 시드 고정 후 섞기
+    # --------------------------------
+    # 1. combo 목록 만들기
+    # --------------------------------
+    combos = sorted(
+        set(get_combo(name) for name in names)
+    )
+
+    # --------------------------------
+    # 2. 랜덤하게 섞기
+    # --------------------------------
     random.seed(SEED)
     random.shuffle(combos)
 
-    # 3. 앞에서 20%를 val 조합으로
+    # --------------------------------
+    # 3. 기본 val combo 결정
+    # --------------------------------
     n_val = int(len(combos) * VAL_RATIO)
+
     val_combos = set(combos[:n_val])
 
-    # 4. 이미지를 조합에 따라 나누기
-    train = [name for name in names if get_combo(name) not in val_combos]
-    val = [name for name in names if get_combo(name) in val_combos]
+    # --------------------------------
+    # 4. 전체 클래스 확인
+    # --------------------------------
+    all_classes = {
+        b["class_id"]
+        for boxes in ann.values()
+        for b in boxes
+    }
+
+    # --------------------------------
+    # 5. 현재 train에 존재하는 클래스 확인
+    # --------------------------------
+    train_classes = {
+        b["class_id"]
+        for name in names
+        if get_combo(name) not in val_combos
+        for b in ann[name]
+    }
+
+    # train에 없는 클래스
+    missing = all_classes - train_classes
+
+    print("\n[클래스 확인]")
+    print(f"전체 클래스: {len(all_classes)}개")
+    print(f"현재 train 클래스: {len(train_classes)}개")
+
+    if missing:
+        print(
+            f"train에 없는 클래스: {len(missing)}개"
+        )
+
+        # --------------------------------
+        # 6. missing class를 가지고 있는
+        #    val combo를 train으로 이동
+        # --------------------------------
+        while missing:
+
+            candidates = []
+
+            for combo in val_combos:
+
+                combo_classes = {
+                    b["class_id"]
+                    for name in names
+                    if get_combo(name) == combo
+                    for b in ann[name]
+                }
+
+                covered = combo_classes & missing
+
+                if covered:
+                    candidates.append(
+                        (
+                            len(covered),
+                            combo,
+                            covered,
+                        )
+                    )
+
+            # 후보 combo가 없는 경우
+            if not candidates:
+                print(
+                    "경고: train에 추가할 수 있는 combo를 찾지 못했습니다."
+                )
+                break
+
+            # 가장 많은 missing class를 해결하는 combo 선택
+            _, selected_combo, covered = max(
+                candidates,
+                key=lambda x: x[0],
+            )
+
+            # val -> train으로 이동
+            val_combos.remove(selected_combo)
+
+            # 해결된 클래스 제거
+            missing -= covered
+
+            print(
+                f"combo 이동: {selected_combo} "
+                f"→ train "
+                f"(클래스 {len(covered)}개 확보)"
+            )
+
+    # --------------------------------
+    # 7. 최종 train / val 이미지 생성
+    # --------------------------------
+    train = [
+        name
+        for name in names
+        if get_combo(name) not in val_combos
+    ]
+
+    val = [
+        name
+        for name in names
+        if get_combo(name) in val_combos
+    ]
+
+    # --------------------------------
+    # 8. 최종 클래스 확인
+    # --------------------------------
+    train_classes = {
+        b["class_id"]
+        for name in train
+        for b in ann[name]
+    }
+
+    missing = all_classes - train_classes
+
+    print("\n[최종 분할 결과]")
+    print(f"train: {len(train)}장")
+    print(f"val: {len(val)}장")
+    print(f"train 클래스: {len(train_classes)}개")
+    print(f"train에 없는 클래스: {sorted(missing)}")
+
     return train, val
 
 
-# ---------- 5. 파일 쓰기 ----------
+# ---------- 7. 이미지 + YOLO 라벨 저장 ----------
 def write_split(ann, names, split, class_to_idx):
-    """한 분할(train 또는 val)의 이미지와 라벨 파일을 만든다
+    """train 또는 val 데이터를 저장한다."""
 
-    입력:
-        ann (dict): 이미지 파일명 -> 박스 리스트
-        names (list): 이 분할에 들어갈 이미지 파일명 리스트
-        split (str): "train" 또는 "val" (폴더 이름으로 쓴다)
-        class_to_idx (dict): 약 ID -> YOLO 번호
-
-    반환:
-        없음. 파일만 만든다.
-            data/yolo/images/<split>/<이미지명>.png   원본 복사
-            data/yolo/labels/<split>/<이미지명>.txt   박스 1개 = 한 줄
-
-    동작:
-        1. images/<split>, labels/<split> 폴더를 만든다.
-        2. 이미지마다
-           a. 원본 png 를 images 폴더로 복사한다.
-           b. 박스마다 to_yolo_line() 으로 한 줄씩 만든다.
-           c. 줄들을 합쳐서 같은 이름의 .txt 로 저장한다.
-    """
-    # 1. 폴더 만들기 (이미 있어도 에러 안 나게 exist_ok=True)
     img_dir = OUT / "images" / split
     lbl_dir = OUT / "labels" / split
-    img_dir.mkdir(parents=True, exist_ok=True)
-    lbl_dir.mkdir(parents=True, exist_ok=True)
+
+    img_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    lbl_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     for name in names:
-        # 2-a. 이미지 복사
-        shutil.copy(RAW / "train_images" / name, img_dir / name)
 
-        # 2-b. 박스마다: 약 ID -> YOLO 번호로 바꾸고 한 줄로 변환
-        lines = [to_yolo_line(b, class_to_idx[b["class_id"]]) for b in ann[name]]
+        # --------------------------------
+        # 1. 이미지 복사
+        # --------------------------------
+        shutil.copy(
+            RAW / "train_images" / name,
+            img_dir / name,
+        )
 
-        # 2-c. 줄바꿈으로 이어서 저장. 파일명은
-        (lbl_dir / name.replace(".png", ".txt")).write_text("\n".join(lines) + "\n")
+        # --------------------------------
+        # 2. YOLO 라벨 생성
+        # --------------------------------
+        lines = [
+            to_yolo_line(
+                b,
+                class_to_idx[b["class_id"]],
+            )
+            for b in ann[name]
+        ]
+
+        # --------------------------------
+        # 3. txt 저장
+        #
+        # 라벨이 없는 이미지라면
+        # 빈 txt 파일이 만들어진다.
+        # --------------------------------
+        label_path = (
+            lbl_dir
+            / name.replace(".png", ".txt")
+        )
+
+        label_path.write_text(
+            "\n".join(lines) + ("\n" if lines else "")
+        )
 
 
+# ---------- 8. data.yaml 생성 ----------
 def write_yaml(class_ids):
-    """YOLO 학습 설정 파일(data.yaml)을 만든다
+    """YOLO 학습 설정 파일을 만든다."""
 
-    입력:
-        class_ids (list): 정렬된 약 ID 리스트 (make_class_map 결과)
-
-    반환:
-        없음. data/yolo/data.yaml 파일을 만든다. 내용 예:
-            path: /.../data/yolo
-            train: images/train
-            val: images/val
-            names:
-              0: '1900'
-              1: '2483'
-              ...
-
-    동작:
-        1. 데이터 위치(path, train, val) 세 줄을 쓴다.
-        2. names 아래에 "번호: '약 ID'" 를 클래스 수만큼 쓴다.
-           -> 학습 때는 클래스 이름표, 제출 때는 번호를 약 ID로 되돌리는 표로 쓴다.
-    """
-    # 1. 데이터 위치
     lines = [
         f"path: {OUT}",
         "train: images/train",
         "val: images/val",
         "names:",
     ]
-    # 2. 번호 -> 약 ID
-    for i, cid in enumerate(class_ids):
-        lines.append(f"  {i}: '{cid}'")
-    (OUT / "data.yaml").write_text("\n".join(lines) + "\n")
+
+    for i, class_id in enumerate(class_ids):
+        lines.append(
+            f"  {i}: '{class_id}'"
+        )
+
+    (OUT / "data.yaml").write_text(
+        "\n".join(lines) + "\n"
+    )
 
 
-# ---------- 실행 ----------
+# ---------- 9. 전체 실행 ----------
 def main():
-    """전체 변환 순서
+    """COCO -> YOLO 전체 변환 과정."""
 
-    입력: 없음
-    반환: 없음. data/yolo/ 를 새로 만들고 요약을 출력한다.
-
-    동작:
-        0. 이전 결과(data/yolo/)가 있으면 지운다.
-        1. JSON 읽기 -> 이상한 이미지 빼기
-        2. 클래스 번호표 만들기
-        3. 조합 단위로 train/val 나누기
-        4. train, val 파일 쓰기 + data.yaml 쓰기
-        5. 요약 출력 (train 에 한 번도 안 나온 클래스도 확인)
-    """
-    # 0. 이전 결과가 남아 있으면 예전 분할과 섞이니까 지우고 새로 만든다
+    # --------------------------------
+    # 0. 이전 결과 삭제
+    # --------------------------------
     if OUT.exists():
         shutil.rmtree(OUT)
 
-    print("[1] 이상한 박스 걸러내기")
-    ann = remove_bad_images(load_annotations())
+    # --------------------------------
+    # 1. 원본 annotation 불러오기
+    # --------------------------------
+    print("[1] 원본 annotation 불러오기")
 
-    print("[2] 클래스 번호 만들기")
+    raw_ann = load_annotations()
+
+    print(f"원본 이미지: {len(raw_ann)}장")
+
+    # --------------------------------
+    # 2. 전처리
+    # --------------------------------
+    print("\n[2] 데이터 전처리")
+
+    ann = preprocess_annotations(raw_ann)
+
+    print(f"전처리 후 이미지: {len(ann)}장")
+
+    # --------------------------------
+    # 3. 클래스 번호 만들기
+    # --------------------------------
+    print("\n[3] 클래스 번호 만들기")
+
     class_ids, class_to_idx = make_class_map(ann)
 
-    print("[3] train/val 나누기")
-    train, val = split_by_combo(sorted(ann))  # sorted(ann) = 이미지 파일명 정렬 리스트
+    print(f"전체 클래스: {len(class_ids)}개")
 
-    print("[4] 파일 쓰기")
-    write_split(ann, train, "train", class_to_idx)
-    write_split(ann, val, "val", class_to_idx)
+    print_class_counts(ann)
+
+    # --------------------------------
+    # 4. train / val 분할
+    # --------------------------------
+    print("\n[4] train / val 나누기")
+
+    train, val = split_by_combo(
+        sorted(ann),
+        ann,
+    )
+
+    # --------------------------------
+    # 5. 파일 저장
+    # --------------------------------
+    print("\n[5] YOLO 파일 생성")
+
+    write_split(
+        ann,
+        train,
+        "train",
+        class_to_idx,
+    )
+
+    write_split(
+        ann,
+        val,
+        "val",
+        class_to_idx,
+    )
+
+    # --------------------------------
+    # 6. data.yaml 생성
+    # --------------------------------
     write_yaml(class_ids)
 
-    # 5. 확인: val 에만 있고 train 에 없는 클래스는 학습이 안 된다
-    train_classes = set(b["class_id"] for n in train for b in ann[n])
-    missing = sorted(set(class_ids) - train_classes)
-    print(f"\n클래스 {len(class_ids)}개 / train {len(train)}장 / val {len(val)}장")
-    print("train에 없는 클래스 (학습 안 됨):", missing)
-    print("저장 위치:", OUT)
+    # --------------------------------
+    # 7. 최종 확인
+    # --------------------------------
+    train_classes = {
+        b["class_id"]
+        for name in train
+        for b in ann[name]
+    }
+
+    missing = sorted(
+        set(class_ids) - train_classes
+    )
+
+    print("\n==============================")
+    print("최종 결과")
+    print("==============================")
+    print(f"클래스: {len(class_ids)}개")
+    print(f"전체 이미지: {len(ann)}장")
+    print(f"train: {len(train)}장")
+    print(f"val: {len(val)}장")
+    print(
+        f"train에 없는 클래스: {missing}"
+    )
+    print(f"저장 위치: {OUT}")
+    print("==============================")
 
 
 if __name__ == "__main__":
     main()
+
