@@ -24,7 +24,7 @@ WEIGHTS = (
 )  # 제출할 모델 (train.py 의 NAME 실험 결과)
 TEST_DIR = RAW / "test_images"  # test 이미지 842장
 OUT_CSV = RUNS / NAME / "submission.csv"  # 제출 파일 (실험 폴더 안에 같이 저장)
-CONF = 0.001  # 이 신뢰도 미만 박스는 버린다. mAP 는 낮은 점수 박스까지 보고 계산해서 낮게 둔다 (0.25 와 비교 제출해보기)
+CONF = 0.25  # 이 신뢰도 미만 박스는 버린다. mAP 는 낮은 점수 박스까지 보고 계산해서 낮게 둔다 (0.25 와 비교 제출해보기)
 
 
 def to_rows(result, image_id, names):
@@ -67,6 +67,34 @@ def to_rows(result, image_id, names):
         )
     return rows
 
+#추가
+def remove_duplicate_class(df):
+    """같은 이미지 안에서 같은 클래스가 중복 예측되면 점수 높은 것만 남긴다
+
+    입력:
+        df (DataFrame): image_id, category_id, score 등을 포함한 예측 결과 표
+                         (annotation_id 넣기 전)
+
+    반환:
+        DataFrame: 이미지당 클래스당 최고 score 박스만 남은 표
+
+    이 데이터셋(조합경구약제)은 한 이미지 안에 같은 약이 두 번 나올 수 없다.
+    그런데도 모델이 같은 class를 한 이미지에서 두 번 예측하면, 점수 낮은 쪽은
+    100% 오탐(다른 약을 착각한 것)이라 지워도 손해가 없다.
+    실제 확인 결과 conf=0.4에서 15건, conf=0.15에서 39건 있었고, 전부
+    IoU=0.00 (겹친 게 아니라 완전히 다른 위치를 같은 클래스로 착각한 경우).
+    """
+    before = len(df)
+    df = (
+        df.sort_values("score", ascending=False)
+        .drop_duplicates(subset=["image_id", "category_id"], keep="first")
+        .sort_index()  # 원래 이미지 순서로 되돌리기
+    )
+    removed = before - len(df)
+    if removed:
+        print(f"같은 이미지 내 클래스 중복 제거: {removed}개")
+    return df
+    
 
 def predict_all(weights, image_dir, device):
     """test 이미지 전체를 예측해서 제출 표를 만든다
@@ -92,11 +120,18 @@ def predict_all(weights, image_dir, device):
     rows = []
     for path in paths:
         result = model.predict(
-            path, imgsz=IMGSZ, conf=CONF, device=device, verbose=False
+            path,
+            imgsz=IMGSZ,
+            conf=CONF,
+            iou=0.6,             
+            agnostic_nms=True,    
+            device=device,
+            verbose=False,
         )[0]
         rows += to_rows(result, int(path.stem), model.names)
 
     df = pd.DataFrame(rows)
+    df = remove_duplicate_class(df)  # 추가: 같은 이미지 내 클래스 중복 제거
     df.insert(0, "annotation_id", range(1, len(df) + 1))
     return df
 

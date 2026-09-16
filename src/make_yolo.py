@@ -44,6 +44,109 @@ def is_valid(b):
         and b["y"] + b["h"] <= IMG_H
     )
 
+#추가내용 시작 : 서로 다른 클래스의 bbox가 거의 같은 위치에 겹치는지 확인(원본라벨오류의심)
+def has_duplicate_label(boxes, iou_threshold=0.9):
+    """서로 다른 클래스의 bbox가 거의 같은 위치에 겹치는지 확인
+
+    입력:
+        boxes (list): 이미지 1장의 박스 리스트 (annotations.py 참고)
+        iou_threshold (float): 이 값 이상 겹치면 중복으로 본다 (기본 0.9)
+
+    반환:
+        bool: class_id 가 다른 두 박스의 bbox가 iou_threshold 이상 겹치면 True,
+              아니면 False
+
+    동작:
+        1. 박스를 두 개씩 짝지어 비교한다.
+        2. class_id 가 같으면 건너뛴다 (같은 알약끼리 겹치는 건 정상적인 상황)
+        3. class_id 가 다른데 bbox 위치가 거의 같으면(IoU 높음), 원본 JSON에서
+           bbox 좌표가 다른 클래스 걸 그대로 복사한 라벨 오류로 보고 True 반환
+
+    실제로 K-001900-016548-019607-033009 조합에서 16548과 33009가 완전히
+    같은 bbox 좌표를 가진 오류가 발견돼서, 이런 케이스를 찾으려고 만들었다.
+    """
+
+    def iou(a, b):
+        ax1, ay1, ax2, ay2 = a["x"], a["y"], a["x"] + a["w"], a["y"] + a["h"]
+        bx1, by1, bx2, by2 = b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"]
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+        inter = iw * ih
+        area_a, area_b = a["w"] * a["h"], b["w"] * b["h"]
+        union = area_a + area_b - inter
+        return inter / union if union > 0 else 0.0
+
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if boxes[i]["class_id"] != boxes[j]["class_id"] and iou(boxes[i], boxes[j]) >= iou_threshold:
+                return True
+    return False
+
+def remove_duplicate_label_images(ann):
+    """서로 다른 클래스가 같은 위치에 겹쳐 라벨링된 이미지를 통째로 뺀다
+
+    입력:
+        ann (dict): 이미지 파일명 -> 박스 리스트
+
+    반환:
+        dict: 같은 모양의 dict. 라벨 중복 의심 이미지만 빠져 있다.
+
+    동작:
+        1. 이미지를 하나씩 보면서
+        2. has_duplicate_label() 이 False 면 결과에 넣고
+        3. True 면 넣지 않고 파일명을 출력한다.
+
+    remove_bad_images() 와 같은 이유로 박스 하나만 빼지 않고 이미지째 뺀다:
+        박스만 빼면 그 알약이 '라벨 없는 배경'으로 학습돼서 모델이 헷갈린다.
+    """
+    clean = {}
+    for name, boxes in ann.items():
+        if has_duplicate_label(boxes):
+            print("  라벨 중복 의심으로 제외:", name)
+            continue
+        clean[name] = boxes
+    return clean
+#추가내용 끝
+
+#추가내용 2 시작: 콤보 이름엔 있는데 실제 라벨이 빠진 이미지 확인
+def get_expected_classes(name):
+    """파일명의 콤보 부분에서 원래 있어야 할 약 ID 목록을 뽑는다
+
+    입력:
+        name (str): 이미지 파일명 예) "K-003351-032310-038162_0_2_0_2_75_000_200.png"
+
+    반환:
+        list: 콤보 이름에 포함된 약 ID 정수 리스트 예) [3351, 32310, 38162]
+    """
+    combo = get_combo(name)
+    return [int(x) for x in combo.split("-")[1:]]
+
+
+def remove_incomplete_label_images(ann):
+    """콤보 이름엔 있는데 실제 라벨이 빠진 이미지를 통째로 뺀다
+
+    입력:
+        ann (dict): 이미지 파일명 -> 박스 리스트
+
+    반환:
+        dict: 같은 모양의 dict. 라벨 누락 의심 이미지만 빠져 있다.
+
+    파일명(K-<코드1>-<코드2>-...)에 있는 약 개수만큼 라벨이 있어야 하는데
+    실제 JSON에 그 약의 박스가 없으면, 그 부분이 '라벨 없는 배경'으로
+    학습돼서 모델이 그 약을 오히려 헷갈리게 배운다.
+    (전수조사 결과 8장 확인됨: 3351이 4번으로 가장 많이 걸림)
+    """
+    clean = {}
+    for name, boxes in ann.items():
+        expected = set(get_expected_classes(name))
+        actual = set(b["class_id"] for b in boxes)
+        if expected - actual:
+            print("  라벨 누락 의심으로 제외:", name, "누락:", sorted(expected - actual))
+            continue
+        clean[name] = boxes
+    return clean
+#추가내용 2 끝
 
 def remove_bad_images(ann):
     """이상한 박스가 하나라도 있는 이미지를 통째로 뺀다
@@ -146,13 +249,13 @@ def get_combo(name):
     """
     return name.split("_", 1)[0]
 
-
-def split_by_combo(names):
+#변경내용 ann추가
+def split_by_combo(names,ann):
     """이미지 목록을 조합 단위로 train / val 로 나눈다
 
     입력:
         names (list): 이미지 파일명 리스트 (정렬된 상태로 넣는다)
-
+    #추가 ann(dict) : 이미지 파일명 -> 박스리스트(클래스가 train에서 사라지는지 확인용)
     반환:
         train (list): train 에 들어갈 이미지 파일명 리스트
         val (list): val 에 들어갈 이미지 파일명 리스트
@@ -161,6 +264,9 @@ def split_by_combo(names):
         1. 파일명마다 조합 ID를 뽑고 중복을 없애서 정렬한다. (114개)
         2. 시드를 고정하고 섞는다.
         3. 앞에서 20% 조합을 val 로 정한다.
+    #추가 3-1) 그 결과 train에서 완전히 사라지는 클래스가 있으면 그 클래스가 들어있는
+              조합을 val에서 빼서 train으로 되돌린다(조합1개뿐인 희귀클래스가 val에 걸리면 학습을
+              한번도 못하기 때문)
         4. 이미지마다 조합이 val 쪽이면 val, 아니면 train 에 넣는다.
 
     이미지가 아니라 조합으로 나누는 이유:
@@ -177,7 +283,29 @@ def split_by_combo(names):
     # 3. 앞에서 20%를 val 조합으로
     n_val = int(len(combos) * VAL_RATIO)
     val_combos = set(combos[:n_val])
+    
+    #추가 시작: 3-1. 조합별로 어떤 클래스가 들어있는지 모아둔다
+    combo_classes = {}
+    for name in names:
+        combo = get_combo(name)
+        combo_classes.setdefault(combo, set()).update(b["class_id"] for b in ann[name])
 
+    all_classes = set().union(*combo_classes.values())
+    train_classes = {
+        cid for combo, classes in combo_classes.items() if combo not in val_combos for cid in classes
+    }
+    missing = all_classes - train_classes
+
+    # missing 클래스가 있으면, 그 클래스를 포함한 val 조합을 train으로 되돌린다
+    while missing:
+        for combo in list(val_combos):
+            if combo_classes[combo] & missing:
+                val_combos.discard(combo)
+                missing -= combo_classes[combo]
+                break
+        else:
+            break  # 더 이상 되돌릴 조합이 없으면 중단 (무한루프 방지)
+    #추가 끝
     # 4. 이미지를 조합에 따라 나누기
     train = [name for name in names if get_combo(name) not in val_combos]
     val = [name for name in names if get_combo(name) in val_combos]
@@ -278,13 +406,15 @@ def main():
 
     print("[1] 이상한 박스 걸러내기")
     ann = remove_bad_images(load_annotations())
-
+    ann = remove_duplicate_label_images(ann)  # 추가:서로 다른 클래스의 bbox가 거의 같은 위치에 겹치는지 확인(원본라벨오류의심)
+    ann = remove_incomplete_label_images(ann)  # 추가: 콤보명엔 있는데 실제 라벨 빠진 이미지 제외
+    
     print("[2] 클래스 번호 만들기")
     class_ids, class_to_idx = make_class_map(ann)
 
     print("[3] train/val 나누기")
-    train, val = split_by_combo(sorted(ann))  # sorted(ann) = 이미지 파일명 정렬 리스트
-
+    # train, val = split_by_combo(sorted(ann))  # sorted(ann) = 이미지 파일명 정렬 리스트
+    train, val = split_by_combo(sorted(ann), ann) #ann이추가됨
     print("[4] 파일 쓰기")
     write_split(ann, train, "train", class_to_idx)
     write_split(ann, val, "val", class_to_idx)
@@ -297,6 +427,6 @@ def main():
     print("train에 없는 클래스 (학습 안 됨):", missing)
     print("저장 위치:", OUT)
 
-
+ 
 if __name__ == "__main__":
     main()

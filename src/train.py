@@ -23,12 +23,12 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 50  # 데이터 전체를 몇 번 반복할지
-IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
-BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
+EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
+IMGSZ = 1280 # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
+BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
-NAME = "baseline"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
-MEMO = "기본값 베이스라인"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
+NAME = "yolo26n_clean_v2"  # 라벨 누락 8장 추가 제외 반영, imgsz는 기존 유지
+MEMO = "yolo26n_clean_ep150 설정 유지 + 라벨 누락 의심 이미지 8장 추가 제외(콤보명-실제라벨 불일치, 3351 4건 포함), imgsz는 960 유지()"
 
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
@@ -62,7 +62,23 @@ MEMO = "기본값 베이스라인"  # 이번 실험에서 무엇을 왜 바꿨�
 # ----- 기타 -----
 #   "patience": 100       N epoch 동안 val 점수가 안 오르면 멈춤. 30
 #   "freeze": None        앞쪽 N층 고정 (데이터 적을 때 과적합 방지). 10
-EXPERIMENT = {}
+EXPERIMENT = {
+    "box": 12.0,
+    "cls": 1.0,
+    "hsv_h": 0.0,
+    "fliplr": 0.0,
+    "scale": 0.3,
+    "translate": 0.05,
+    "mosaic": 0.5,
+    "close_mosaic": 45,
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "lrf": 0.01,
+    "cos_lr": True,
+    "warmup_epochs": 3.0,
+    "weight_decay": 0.001,
+    "patience": 30,
+}
 
 
 def get_device():
