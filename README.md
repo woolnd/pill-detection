@@ -188,54 +188,17 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 ## 실험 기록
 
 <!-- 실험그래프 시작 -->
-### 📅 9월 16일 실험
-
-![9월 16일 실험](docs/images/experiments_today.svg)
-
-| 순서 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
-|---|---|---|---|---|---|---|
-| 1 | 09-16 09:26 | imgsz960, ep50, batch16 | 윤성원 | epoch를 50으로 조절함 patience는 의미가 없어보여 하이퍼파라미터에서 제외 | 0.9172 |  |
-| 2 | 09-16 09:36 | yolo26n_clean_ep150 | 김라희 | 라벨 정제(중복 3장 제외) + train 누락 클래스(33009) 복구 + cls 1.0 + weight_decay 0.001 + epochs150/patience60/close_mosaic45 + predict conf 재검증(0.4 vs 0.15~0.2) | 0.9929 | 0.3938 |
-| 3 | 09-16 09:59 | jw_ep100_img960_batch8_lr0.001_resplit | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / val 재분할(train에 모든 클래스가 학습될 수 있도록) | 0.984 | 0.41504 |
-| 4 | 09-16 09:59 | imgsz960, ep50, batch=4 | 윤성원 | batch 영향을 확인하기 위해 4로 설정 | 0.9146 |  |
-| 5 | 09-16 10:50 | imgsz960, ep50, batch=4, | 윤성원 | 학습은 가볍게 하기 위해 epochs=50, batch=4로 줄임 / make_yolo.py 에서 모든 클래스가 학습 될 수 있게 코드 수정 | 0.9719 |  |
-| 6 | 09-16 11:17 | yolo26n_clean_v2 | 김라희 | yolo26n_clean_ep150 설정 유지 + 라벨 누락 의심 이미지 8장 추가 제외(콤보명-실제라벨 불일치, 3351 4건 포함), imgsz는 960 유지 | 0.995 | 0.4062 |
-| 7 | 09-16 11:19 | experiment_05_model_s | 신재민 | 이미지 크기와 augmentation 설정은 그대로 두고 모델만 N → S로 변경하여 모델 크기에 따른 성능 변화를 확인한다. | 0.9346 |  |
-| 8 | 09-16 11:36 | imgsz960, ep100, batch=4 버젼 2 | 윤성원 | 모든 클래스가 포함 될 수 있게 make_yolo 수정, epochs=100으로 다시 재검사 | 0.9808 |  |
-| 9 | 09-16 11:44 | experiment_06_epochs100 | 신재민 | 이미지 크기와 augmentation 설정은 그대로 두고 모델만 N → S로 변경하였던 값에 epochs를 50에서 100으로 늘려보았다. | 0.8093 |  |
-| 10 | 09-16 12:08 | jw_ep100_img1280_batch4_lr0.001_fit75 | 엄재웅 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / best.pt 기준 변경(대회지표로) | 0.984 | 0.40805 |
-| 11 | 09-16 12:08 | imgsz1280, ep50, batch=4 | 윤성원 | epochs=50, imgsz=1280으로 재검사 | 0.9419 |  |
-| 12 | 09-16 12:40 | imgsz640, ep50, batch=4 | 윤성원 | epochs=50, imgsz=640으로 재학습 (imgsz960 대비 imgsz1280이 오히려 mAP 점수가 떨어지는 현상 발견) | 0.9568 |  |
-| 13 | 09-16 13:27 | imgsz1024, ep50, batch=4 | 윤성원 | imgsz1024로 학습 진행 후 imgsz 960 대비 어떻게 달라지는지 확인(imgsz는 32배수로 설정) | 0.9888 |  |
-| 14 | 09-16 14:09 | experiment_07_model_m | 신재민 | S → M 모델 변경, mAP75-95 성능 비교 | 0.9283 |  |
-| 15 | 09-16 14:12 | imgsz896, ep50, batch=4 | 윤성원 | imgsz896 imgsz960과 1024와 비교를 위해 실험 | 0.9586 |  |
-| 16 | 09-16 14:33 | yolo26n_imgsz1280_v3 | 김라희 | imgsz 1280 + 회전증강(degrees 15) + close_mosaic 30 + cls 1.5 (클래스 혼동 방지) + patience 30 | 0.9342 |  |
-| 17 | 09-16 14:35 | imgsz1024, ep50, batch=12 | 윤성원 | imgsz 값들 중 1024가 점수가 제일 높음, batch 12 값 테스트 (이후 batch=8 테스트) | 0.9808 |  |
-| 18 | 09-16 14:40 | experiment_08_split_fix | 신재민 | 33009 학습 누락 보정 후 재학습. mAP75-95 0.6612로 하락. VAL 데이터 차이에 따른 성능 저하 원인 분석 예정. | 0.6612 |  |
-| 19 | 09-16 14:55 | jw_ep100_img960_batch4_lr0.001_yolo26s | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 4 / lr: 0.001 / yolo26s | 0.981 |  |
-| 20 | 09-16 14:57 | imgsz1024, ep50, batch=8 | 윤성원 | batch = 8로 재학습) | 0.9732 |  |
-| 21 | 09-16 15:06 | experiment_09_class_balance | 신재민 | 클래스 분포를 고려해 TRAIN/VAL을 재분할 후 재학습. 기존 조건(S/960/50)을 유지해 분할 변경에 따른 성능 차이 확인. | 0.6865 |  |
-| 22 | 09-16 15:19 | experiment_10_reproduce_exp05 | 신재민 | Exp05와 동일한 Combo 기준 Train/Val 분할 및 학습 조건으로 재현 | 0.942 |  |
-| 23 | 09-16 15:41 | experiment_11_imgsz1280 | 신재민 | 기본값 베이스라인 | 0.7163 |  |
-| 24 | 09-16 15:59 | jw_ep100_img960_batch8_lr0.001_clspw0.5 | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / cls_pw 0.5 (희소 클래스 17종이 train 박스 2~3개) | 0.9776 |  |
-| 25 | 09-16 16:11 | imgsz1024, ep150, batch=4 | 윤성원 | imgsz=1024, batch=4 가 현재까지 점수가 제일 좋아 EPOCHS=150으로 값 조정 | 0.9918 |  |
-
-### 🏆 Kaggle 점수 순위
+### 🏆 Kaggle 점수 TOP 5
 
 ![Kaggle 점수 순위](docs/images/experiments_best.svg)
 
-| 순위 | 시간 | name | author | memo | val mAP75-95 | kaggle_score |
+| 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |
 |---|---|---|---|---|---|---|
-| 1 | 09-16 09:59 | jw_ep100_img960_batch8_lr0.001_resplit | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / val 재분할(train에 모든 클래스가 학습될 수 있도록) | 0.984 | 0.41504 |
-| 2 | 09-16 12:08 | jw_ep100_img1280_batch4_lr0.001_fit75 | 엄재웅 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / best.pt 기준 변경(대회지표로) | 0.984 | 0.40805 |
-| 3 | 09-16 11:17 | yolo26n_clean_v2 | 김라희 | yolo26n_clean_ep150 설정 유지 + 라벨 누락 의심 이미지 8장 추가 제외(콤보명-실제라벨 불일치, 3351 4건 포함), imgsz는 960 유지 | 0.995 | 0.4062 |
-| 4 | 09-16 09:36 | yolo26n_clean_ep150 | 김라희 | 라벨 정제(중복 3장 제외) + train 누락 클래스(33009) 복구 + cls 1.0 + weight_decay 0.001 + epochs150/patience60/close_mosaic45 + predict conf 재검증(0.4 vs 0.15~0.2) | 0.9929 | 0.3938 |
-| 5 | 09-15 16:22 | imgsz960, ep200 | 윤성원 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 | 0.9401 | 0.39275 |
-| 6 | 09-15 16:09 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 | 0.9321 | 0.39139 |
-| 7 | 09-15 17:35 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) | 0.9534 | 0.39071 |
-| 8 | 09-15 11:41 | baseline | 윤성원 | 기본값 베이스라인 | 0.8855 | 0.37169 |
-| 9 | 09-15 17:16 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 | 0.9146 | 0.3658 |
-| 10 | 09-15 11:06 | imgsz960_ep50 | 김라희 | imgsz 960, epochs 50로 변경 (해상도 ↑, 학습시간 조절) | 0.9157 | 0.35544 |
+| 1 | 0.39275 | imgsz960, ep200 | 윤성원 | 0.9401 | 09-15 16:22 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 |
+| 2 | 0.39139 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | 0.9321 | 09-15 16:09 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 |
+| 3 | 0.39071 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | 0.9534 | 09-15 17:35 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) |
+| 4 | 0.37169 | baseline | 윤성원 | 0.8855 | 09-15 11:41 | 기본값 베이스라인 |
+| 5 | 0.3658 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | 0.9146 | 09-15 17:16 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 |
 <!-- 실험그래프 끝 -->
 
 ## 실험 기록 자동화
