@@ -1,10 +1,9 @@
-"""구글 시트 실험 기록 -> README 실험 그래프(SVG) + 표 갱신
+"""구글 시트 실험 기록 -> README Kaggle 점수 순위 그래프(SVG) + 표 갱신
 
 실행: uv run --env-file .env python src/plot_experiments.py
       (GitHub Actions 도 같은 파일을 실행한다. 이때 SHEET_URL 은 저장소 Secret)
-결과: docs/images/experiments_today.svg   가장 최근 실험한 날의 val mAP75-95 (시간순)
-      docs/images/experiments_best.svg    Kaggle 점수 높은 순 상위 실험
-      README.md 의 <!-- 실험그래프 시작 --> ~ <!-- 실험그래프 끝 --> 사이를 그래프 + 표로 바꾼다
+결과: docs/images/experiments_best.svg    Kaggle 점수 상위 5개 (오른쪽으로 갈수록 높음, 1위 옆에 이름)
+      README.md 의 <!-- 실험그래프 시작 --> ~ <!-- 실험그래프 끝 --> 사이를 그래프 + 순위표로 바꾼다
 
 표준 라이브러리만 쓴다. (Actions 에서 uv sync 로 torch 까지 설치하지 않아도 되게)
 그래프는 SVG 글자로 직접 그린다. (matplotlib 없이도 점 + 선 + 값 표시 그래프를 만들 수 있다)
@@ -23,15 +22,17 @@ README = ROOT / "README.md"
 IMAGES = ROOT / "docs" / "images"  # 그래프 파일 저장 폴더
 START = "<!-- 실험그래프 시작 -->"  # README 에서 자동으로 바꿀 영역의 시작 표시
 END = "<!-- 실험그래프 끝 -->"  # 끝 표시
-TOP = 10  # Kaggle 순위 그래프에 몇 개까지 그릴지
+TOP = 5  # Kaggle 순위 몇 등까지 보여줄지
 KST = timezone(timedelta(hours=9))  # 한국 시간 (시트 time 은 UTC 로 온다)
 
 # ===== 그래프 모양 =====
-WIDTH, HEIGHT = 760, 380  # 그림 전체 크기
-LEFT, RIGHT, TOP_MARGIN, BOTTOM = 70, 50, 80, 80  # 그래프 영역 바깥 여백
+WIDTH, HEIGHT = 760, 400  # 그림 전체 크기
+LEFT, RIGHT, TOP_MARGIN, BOTTOM = 70, 50, 110, 80  # 그래프 영역 바깥 여백 (위는 1위 이름 자리까지)
 INNER = 40  # 첫 점, 마지막 점을 그래프 영역 안쪽으로 들이는 거리
 LINE_COLOR = "#3b8fd9"  # 선 색
 AREA_COLOR = "#e9f1fa"  # 선 아래 음영 색
+GOLD = "#b7791f"  # 1위 글자·테두리 색
+GOLD_FILL = "#f6c343"  # 1위 점 색
 FONT = "Pretendard, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif"
 
 
@@ -117,33 +118,6 @@ def valid_rows(rows):
     return result
 
 
-def latest_day_rows(rows):
-    """가장 최근 실험한 날의 실험만 시간순으로 고른다
-
-    입력:
-        rows (list): valid_rows() 결과
-
-    반환:
-        day (date): 가장 최근 실험 날짜  예) 2026-09-15
-        picked (list): 그날 실험 행 (시간순)
-
-    동작:
-        1. 모든 행의 날짜 중 가장 늦은 날을 찾는다.
-           (오늘 실험이 있으면 오늘, 없으면 마지막으로 실험한 날. Kaggle 점수만 입력한 날에도 그래프가 비지 않게)
-        2. 그날 행만 모아 시간순으로 정렬한다.
-    """
-    # 1. 가장 최근 날짜
-    day = max(row["kst"].date() for row in rows)
-
-    # 2. 그날 행만, 시간순
-    picked = []
-    for row in rows:
-        if row["kst"].date() == day:
-            picked.append(row)
-    picked = sorted(picked, key=lambda row: row["kst"])
-    return day, picked
-
-
 def best_rows(rows):
     """Kaggle 점수가 있는 실험을 점수 높은 순으로 고른다
 
@@ -173,7 +147,7 @@ def y_range(values):
     """y축 아래·위 끝을 정한다 (점수 차이가 작아도 선이 잘 보이게)
 
     입력:
-        values (list): 그릴 점수들  예) [0.0, 0.7939, 0.1101]
+        values (list): 그릴 점수들  예) [0.1, 0.2356, 0.3914]
 
     반환:
         low (float), high (float): y축 범위 (0~1 안)
@@ -191,15 +165,16 @@ def y_range(values):
     return max(0.0, low - pad), min(1.0, high + pad)
 
 
-def make_svg(title, subtitle, labels, sublabels, values):
-    """점을 선으로 이은 꺾은선 그래프를 SVG 글자로 만든다
+def make_svg(title, subtitle, ranks, labels, sublabels, values):
+    """점을 선으로 이은 순위 그래프를 SVG 글자로 만든다 (마지막 점 = 1위)
 
     입력:
-        title (str): 제목  예) "9월 15일 실험"
-        subtitle (str): 제목 아래 설명  예) "val mAP75-95 · 시간순"
-        labels (list): x축 첫째 줄 (실험 이름)  예) ["jw_base", "rh_ep100"]
-        sublabels (list): x축 둘째 줄 (작성자 등)  예) ["엄재웅", "김라희"]
-        values (list): 점수  예) [0.7225, 0.7939]
+        title (str): 제목  예) "Kaggle 점수 순위"
+        subtitle (str): 제목 아래 설명  예) "Kaggle Public Score · 상위 5개"
+        ranks (list): x축 첫째 줄 (등수), 낮은 등수부터  예) ["2위", "1위"]
+        labels (list): x축 둘째 줄 (실험 이름)  예) ["rh_base", "jw_ep100"]
+        sublabels (list): x축 셋째 줄 (작성자)  예) ["김라희", "엄재웅"]
+        values (list): 점수, 낮은 순  예) [0.2356, 0.3914]
 
     반환:
         str: <svg> ... </svg> 글자
@@ -209,8 +184,9 @@ def make_svg(title, subtitle, labels, sublabels, values):
            x = 왼쪽 여백부터 같은 간격 (점이 1개면 가운데)
            y = 점수가 높을수록 위 (SVG 는 y 가 아래로 커져서 뒤집는다)
         2. 배경, 제목, 가로 눈금선을 그린다.
-        3. 선 아래 음영 -> 선 -> 네모 점 -> 점 위 점수 -> x축 이름 순서로 그린다.
+        3. 선 아래 음영 -> 선 -> 네모 점 -> 점 위 점수 -> x축 등수·이름 순서로 그린다.
            (나중에 그린 것이 위에 보여서 점과 글자가 선에 가리지 않는다)
+        4. 1위(마지막 점) 위에 순위표처럼 "1위 이름 · 작성자" 를 적는다.
     """
     plot_w = WIDTH - LEFT - RIGHT  # 그래프 영역 가로
     plot_h = HEIGHT - TOP_MARGIN - BOTTOM  # 그래프 영역 세로
@@ -255,15 +231,28 @@ def make_svg(title, subtitle, labels, sublabels, values):
     # 바닥선
     parts.append(f'<line x1="{LEFT - 10}" y1="{base_y}" x2="{WIDTH - RIGHT + 10}" y2="{base_y}" stroke="#9ca3af"/>')
 
-    for (x, y), value, label, sublabel in zip(points, values, labels, sublabels):
-        # 3-c. 네모 점 (흰 칸 + 진한 테두리)
-        parts.append(f'<rect x="{x - 6}" y="{y - 6}" width="12" height="12" fill="#ffffff" stroke="#374151" stroke-width="2"/>')
+    for i, ((x, y), value, rank, label, sublabel) in enumerate(zip(points, values, ranks, labels, sublabels)):
+        is_first = i == len(points) - 1  # 마지막 점이 1위
+
+        # 3-c. 네모 점 (1위는 금색, 나머지는 흰 칸 + 진한 테두리)
+        fill = GOLD_FILL if is_first else "#ffffff"
+        stroke = GOLD if is_first else "#374151"
+        parts.append(f'<rect x="{x - 6}" y="{y - 6}" width="12" height="12" fill="{fill}" stroke="{stroke}" stroke-width="2"/>')
         # 3-d. 점 위 점수
         parts.append(f'<text x="{x}" y="{y - 14}" font-size="13" font-weight="700" fill="#111827" text-anchor="middle">{value:.4f}</text>')
-        # 3-e. x축 이름 두 줄 (점 10개일 때 옆 이름과 안 겹치게 11자까지, 전체 이름은 아래 표에 있음)
-        short = label if len(label) <= 11 else label[:10] + "…"
-        parts.append(f'<text x="{x}" y="{base_y + 24}" font-size="12" fill="#374151" text-anchor="middle">{escape(short)}</text>')
-        parts.append(f'<text x="{x}" y="{base_y + 42}" font-size="11" fill="#9ca3af" text-anchor="middle">{escape(sublabel)}</text>')
+        # 3-e. x축 세 줄: 등수 / 이름 (18자까지, 전체 이름은 아래 표에 있음) / 작성자
+        rank_color = GOLD if is_first else "#374151"
+        short = label if len(label) <= 18 else label[:17] + "…"
+        parts.append(f'<text x="{x}" y="{base_y + 22}" font-size="13" font-weight="700" fill="{rank_color}" text-anchor="middle">{escape(rank)}</text>')
+        parts.append(f'<text x="{x}" y="{base_y + 40}" font-size="12" fill="#374151" text-anchor="middle">{escape(short)}</text>')
+        parts.append(f'<text x="{x}" y="{base_y + 56}" font-size="11" fill="#9ca3af" text-anchor="middle">{escape(sublabel)}</text>')
+
+    # 4. 1위 이름 (점수 글자 위, 오른쪽 끝에 맞춰 그림 밖으로 안 나가게)
+    x, y = points[-1]
+    parts.append(
+        f'<text x="{x + INNER}" y="{y - 36}" font-size="14" fill="#111827" text-anchor="end">'
+        f'<tspan font-weight="700" fill="{GOLD}">1위</tspan> {escape(labels[-1])} · {escape(sublabels[-1])}</text>'
+    )
 
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
@@ -273,11 +262,11 @@ def save_svg(filename, svg):
     """SVG 글자를 docs/images/ 에 저장한다
 
     입력:
-        filename (str): 파일 이름  예) "experiments_today.svg"
+        filename (str): 파일 이름  예) "experiments_best.svg"
         svg (str): make_svg() 결과
 
     반환:
-        str: README 에 쓸 상대 경로  예) "docs/images/experiments_today.svg"
+        str: README 에 쓸 상대 경로  예) "docs/images/experiments_best.svg"
 
     동작:
         1. 폴더가 없으면 만든다.
@@ -292,24 +281,23 @@ def save_svg(filename, svg):
 
 
 # ---------- 4. 표 ----------
-def make_table(rows, first_column):
-    """그래프 아래에 붙일 표를 만든다 (정확한 숫자와 메모 확인용)
+def make_table(rows):
+    """그래프 아래에 붙일 순위표를 만든다 (정확한 숫자와 메모 확인용)
 
     입력:
-        rows (list): 그래프에 쓴 행 (그래프와 같은 순서)
-        first_column (str): 첫 열 이름  예) "순서", "순위"
+        rows (list): best_rows() 결과 (1위부터)
 
     반환:
         str: 마크다운 표
 
     동작:
-        1. 제목 줄 2개를 만든다.
+        1. 제목 줄 2개를 만든다. (점수를 앞에, 긴 메모는 맨 뒤에)
         2. 행마다 한 줄씩 추가한다.
            메모에 | 가 있으면 표 칸이 깨져서 \\| 로, 줄바꿈은 공백으로 바꾼다.
     """
     # 1. 제목
     lines = [
-        f"| {first_column} | 시간 | name | author | memo | val mAP75-95 | kaggle_score |",
+        "| 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |",
         "|---|---|---|---|---|---|---|",
     ]
 
@@ -318,14 +306,14 @@ def make_table(rows, first_column):
         memo = str(row["memo"]).replace("|", "\\|").replace("\n", " ")
         when = row["kst"].strftime("%m-%d %H:%M")
         lines.append(
-            f"| {i + 1} | {when} | {row['name']} | {row['author']} | {memo} | {row['mAP75-95']} | {row['kaggle_score']} |"
+            f"| {i + 1} | {row['kaggle_score']} | {row['name']} | {row['author']} | {row['mAP75-95']} | {when} | {memo} |"
         )
     return "\n".join(lines)
 
 
 # ---------- 5. README ----------
 def make_block(rows):
-    """README 에 넣을 전체 내용(그래프 2개 + 표 2개)을 만든다
+    """README 에 넣을 전체 내용(순위 그래프 + 순위표)을 만든다
 
     입력:
         rows (list): valid_rows() 결과
@@ -334,42 +322,37 @@ def make_block(rows):
         str: 마크다운 글자
 
     동작:
-        1. 가장 최근 실험한 날 그래프 + 표
-        2. Kaggle 점수 순위 그래프 + 표 (점수가 하나도 없으면 안내 문구만)
+        1. Kaggle 점수 상위 TOP 개를 고른다. 하나도 없으면 안내 문구만 넣는다.
+        2. 그래프는 낮은 점수부터 그려서 오른쪽 끝이 1위가 되게 뒤집는다.
+        3. 표는 1위부터 적는다.
     """
-    # 1. 최근 실험한 날
-    day, today = latest_day_rows(rows)
-    title = f"{day.month}월 {day.day}일 실험"
-    path = save_svg(
-        "experiments_today.svg",
-        make_svg(
-            title,
-            f"val mAP75-95 · 시간순 · {len(today)}개",
-            [row["name"] for row in today],
-            [row["author"] for row in today],
-            [float(row["mAP75-95"]) for row in today],
-        ),
-    )
-    lines = [f"### 📅 {title}", "", f"![{title}]({path})", "", make_table(today, "순서"), ""]
+    lines = [f"### 🏆 Kaggle 점수 TOP {TOP}", ""]
 
-    # 2. Kaggle 점수 순위
+    # 1. 상위 실험
     best = best_rows(rows)
-    lines.append("### 🏆 Kaggle 점수 순위")
-    lines.append("")
     if not best:
         lines.append("아직 Kaggle 점수가 입력된 실험이 없습니다.")
-    else:
-        path = save_svg(
-            "experiments_best.svg",
-            make_svg(
-                "Kaggle 점수 순위",
-                f"Kaggle Public Score · 높은 순 · 상위 {len(best)}개",
-                [row["name"] for row in best],
-                [row["author"] for row in best],
-                [float(row["kaggle_score"]) for row in best],
-            ),
-        )
-        lines += [f"![Kaggle 점수 순위]({path})", "", make_table(best, "순위")]
+        return "\n".join(lines)
+
+    # 2. 그래프 (낮은 점수 -> 1위)
+    ascending = list(reversed(best))
+    ranks = []
+    for i in range(len(best)):
+        ranks.append(f"{len(best) - i}위")
+    path = save_svg(
+        "experiments_best.svg",
+        make_svg(
+            "Kaggle 점수 순위",
+            f"Kaggle Public Score · 상위 {len(best)}개 · 오른쪽이 1위",
+            ranks,
+            [row["name"] for row in ascending],
+            [row["author"] for row in ascending],
+            [float(row["kaggle_score"]) for row in ascending],
+        ),
+    )
+
+    # 3. 표 (1위부터)
+    lines += [f"![Kaggle 점수 순위]({path})", "", make_table(best)]
     return "\n".join(lines)
 
 
@@ -409,7 +392,7 @@ def main():
 
     동작:
         1. 시트 읽기 -> 빈 행 빼고 한국 시간 붙이기
-        2. 그래프 2개 저장 + README 에 넣을 내용 만들기
+        2. 순위 그래프 저장 + README 에 넣을 내용 만들기
         3. README 갱신 후 결과 출력
     """
     # 1. 시트

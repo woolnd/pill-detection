@@ -12,6 +12,7 @@
 
 import random
 import shutil
+from collections import Counter
 from pathlib import Path
 
 from annotations import RAW, load_annotations
@@ -45,29 +46,128 @@ def is_valid(b):
     )
 
 
+def get_codes(name):
+    """파일명에서 사진에 들어 있는 약 ID 목록을 꺼낸다
+
+    입력:
+        name (str): 이미지 파일명
+                    예) "K-001900-016548-019607-033009_0_2_0_2_70_000_200.png"
+
+    반환:
+        list: 약 ID 숫자 리스트
+              예) [1900, 16548, 19607, 33009]
+
+    동작:
+        1. 첫 번째 "_" 앞부분(조합 ID)만 자른다.  예) "K-001900-016548-019607-033009"
+        2. "-" 로 나누고 맨 앞 "K" 는 뺀다.
+        3. 나머지를 숫자로 바꾼다. ("001900" -> 1900)
+    """
+    # 1. 조합 ID
+    combo = name.split("_", 1)[0]
+
+    # 2~3. "K" 빼고 숫자로
+    return [int(code) for code in combo.split("-")[1:]]
+
+
+def has_missing_label(name, boxes):
+    """사진에 있는 약 중에 라벨이 없는 약이 있는지 검사
+
+    입력:
+        name (str): 이미지 파일명
+        boxes (list): 그 이미지의 박스 리스트
+
+    반환:
+        bool: 파일명에는 있는데 박스에는 없는 약이 하나라도 있으면 True
+
+    동작:
+        1. 박스들의 약 ID 를 모은다.
+        2. 파일명의 약 ID 를 하나씩 보면서 박스 목록에 없으면 True
+        3. 끝까지 다 있으면 False
+
+    라벨이 빠진 알약은 학습 때 '배경'으로 배워서 모델이 그 알약을 무시하게 된다.
+    """
+    # 1. 라벨이 붙은 약 ID
+    labeled = [b["class_id"] for b in boxes]
+
+    # 2. 파일명의 약이 라벨에 있는지
+    for code in get_codes(name):
+        if code not in labeled:
+            return True
+
+    # 3. 전부 있음
+    return False
+
+
+def has_duplicate_box(boxes):
+    """좌표가 똑같은 박스가 2개 이상인지 검사 (한 알약에 라벨 2개)
+
+    입력:
+        boxes (list): 이미지 1장의 박스 리스트
+
+    반환:
+        bool: 같은 좌표가 두 번 나오면 True
+
+    동작:
+        1. 박스마다 (x, y, w, h) 좌표를 만든다.
+        2. 이미 본 좌표면 True, 처음 보면 목록에 추가한다.
+        3. 끝까지 겹치는 게 없으면 False
+
+    예) 같은 박스에 16548 과 33009 라벨이 둘 다 붙은 경우. 한쪽 라벨은 다른 알약 자리가 비어 있다.
+    """
+    seen = []
+
+    for b in boxes:
+        # 1. 좌표
+        pos = (b["x"], b["y"], b["w"], b["h"])
+
+        # 2. 겹침 확인
+        if pos in seen:
+            return True
+        seen.append(pos)
+
+    # 3. 겹침 없음
+    return False
+
+
 def remove_bad_images(ann):
-    """이상한 박스가 하나라도 있는 이미지를 통째로 뺀다
+    """문제가 있는 이미지를 통째로 뺀다
 
     입력:
         ann (dict): load_annotations() 결과. 이미지 파일명 -> 박스 리스트
 
     반환:
-        dict: 같은 모양의 dict. 이상한 이미지만 빠져 있다.
+        dict: 같은 모양의 dict. 문제 있는 이미지만 빠져 있다.
 
     동작:
-        1. 이미지를 하나씩 보면서
-        2. 그 이미지의 박스가 전부 is_valid() 이면 결과에 넣고
-        3. 하나라도 아니면 넣지 않고 파일명을 출력한다.
+        1. 이미지를 파일명 순서로 하나씩 보면서 세 가지를 검사한다.
+           a. 이미지 밖으로 나간 박스가 있음 (is_valid)
+           b. 사진 속 약 중 라벨이 빠진 약이 있음 (has_missing_label)
+           c. 한 알약에 라벨이 2개 겹침 (has_duplicate_box)
+        2. 하나라도 걸리면 결과에 넣지 않고, 이유와 파일명을 출력한다.
+        3. 모두 통과한 이미지만 결과에 넣는다.
 
     박스 하나만 빼지 않고 이미지째 빼는 이유:
         박스만 빼면 그 알약이 '라벨 없는 배경'으로 학습돼서 모델이 헷갈린다.
-        지금은 x=6567 짜리 1장이 해당되고, 같은 조합의 다른 각도 사진이 있어서 손해가 없다.
+        지금은 12장이 해당된다. (이미지 밖 1 + 라벨 빠짐 8 + 라벨 겹침 3)
+        빼도 train 에서 사라지는 클래스는 없다.
     """
     clean = {}
 
-    for name, boxes in ann.items():
-        if all(is_valid(b) for b in boxes):
+    for name, boxes in sorted(ann.items()):  # 파일명 순서로 봐야 출력 순서가 매번 같다
+        # 1. 검사
+        if not all(is_valid(b) for b in boxes):
+            reason = "박스가 이미지 밖"
+        elif has_missing_label(name, boxes):
+            reason = "라벨 빠짐"
+        elif has_duplicate_box(boxes):
+            reason = "라벨 겹침"
+        else:
+            # 3. 통과
             clean[name] = boxes
+            continue
+
+        # 2. 제외 이유 출력
+        print(f"  제외 ({reason}): {name}")
 
     return clean
 
@@ -160,8 +260,9 @@ def split_by_combo(names):
     동작:
         1. 파일명마다 조합 ID를 뽑고 중복을 없애서 정렬한다. (114개)
         2. 시드를 고정하고 섞는다.
-        3. 앞에서 20% 조합을 val 로 정한다.
-        4. 이미지마다 조합이 val 쪽이면 val, 아니면 train 에 넣는다.
+        3. 앞에서 20% 조합을 val 후보로 정한다.
+        4. 그 중 '조합이 1개뿐인 약'을 가진 조합은 후보에서 빼서 train 에 남긴다.
+        5. 이미지마다 조합이 val 쪽이면 val, 아니면 train 에 넣는다.
 
     이미지가 아니라 조합으로 나누는 이유:
         같은 조합의 70°/75°/90° 사진이 train과 val에 나뉘어 들어가면
@@ -174,11 +275,16 @@ def split_by_combo(names):
     random.seed(SEED)
     random.shuffle(combos)
 
-    # 3. 앞에서 20%를 val 조합으로
+    # 3. 앞에서 20%를 val 후보로
     n_val = int(len(combos) * VAL_RATIO)
-    val_combos = set(combos[:n_val])
 
-    # 4. 이미지를 조합에 따라 나누기
+    # 4. 조합이 1개뿐인 약을 가진 조합은 val 에서 빼기
+    #    그 조합을 val 로 보내면 해당 약이 train 에서 0장이 되어 학습 자체가 불가능해진다.
+    #    (56종 중 17종이 조합 1개뿐이라 시드에 따라 매번 다른 약이 이렇게 죽는다)
+    counts = Counter(code for combo in combos for code in get_codes(combo))
+    val_combos = {c for c in combos[:n_val] if all(counts[code] > 1 for code in get_codes(c))}
+
+    # 5. 이미지를 조합에 따라 나누기
     train = [name for name in names if get_combo(name) not in val_combos]
     val = [name for name in names if get_combo(name) in val_combos]
     return train, val

@@ -15,6 +15,7 @@ import torch
 from ultralytics import YOLO
 
 from sheet import post_to_sheet
+from ultralytics.utils.metrics import DetMetrics
 
 # ===== 경로 =====
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,12 +24,12 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 50  # 데이터 전체를 몇 번 반복할지
-IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
-BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
+EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
+IMGSZ = 1280  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
+BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
-NAME = "baseline"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
-MEMO = "기본값 베이스라인"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
+NAME = "jw_ep100_img1280_batch8_lr0.001_fit75"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
+MEMO = "epochs: 100 / imgsz: 1280 / batch: 8 / lr: 0.001 / val 재분할(train에 모든 클래스가 학습될 수 있도록)"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
 
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
@@ -62,7 +63,7 @@ MEMO = "기본값 베이스라인"  # 이번 실험에서 무엇을 왜 바꿨�
 # ----- 기타 -----
 #   "patience": 100       N epoch 동안 val 점수가 안 오르면 멈춤. 30
 #   "freeze": None        앞쪽 N층 고정 (데이터 적을 때 과적합 방지). 10
-EXPERIMENT = {}
+EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}
 
 
 def get_device():
@@ -180,6 +181,34 @@ def evaluate(weights, device):
         "mAP50-95": float(metrics.box.map),
         "mAP75-95": float(ap[:, 5:].mean()),
     }
+
+
+# ===== best.pt 선택 기준 =====
+def fitness75(self):
+    """best.pt 를 고를 때 쓸 점수를 대회 지표(mAP75-95)로 계산한다
+
+    입력:
+        self (DetMetrics): ultralytics 가 매 epoch val 을 끝내고 넘겨주는 지표 객체
+
+    반환:
+        float: IoU 0.75~0.95 구간의 평균 AP. 아직 예측이 없으면 0.0
+
+    동작:
+        1. all_ap (클래스 수 x IoU 10칸) 가 비어 있으면 0.0 을 준다. (학습 초반)
+        2. 5번 칸부터(= IoU 0.75, 0.80, 0.85, 0.90, 0.95) 만 평균을 낸다.
+
+    ultralytics 기본값은 mAP50-95 라서, 대회가 점수를 주지 않는 IoU 0.50~0.70
+    구간까지 보고 best.pt 를 고른다. patience 조기종료도 같은 값을 본다.
+    """
+    # 1. 아직 예측이 없을 때
+    if not self.box.all_ap.size:
+        return 0.0
+
+    # 2. IoU 0.75~0.95 만 평균
+    return float(self.box.all_ap[:, 5:].mean())
+
+
+DetMetrics.fitness = property(fitness75)
 
 
 def save_scores(scores, args):
