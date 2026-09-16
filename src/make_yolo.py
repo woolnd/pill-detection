@@ -12,7 +12,6 @@
 
 import random
 import shutil
-from collections import Counter
 from pathlib import Path
 
 from annotations import RAW, load_annotations
@@ -31,9 +30,10 @@ def is_valid(b):
     입력:
         b (dict): 박스 1개
     반환:
-        bool: 네 조건을 모두 만족하면 True, 하나라도 어기면 False
+        bool: 다섯 조건을 모두 만족하면 True, 하나라도 어기면 False
             - 왼쪽 끝(x)이 0 이상
             - 위쪽 끝(y)이 0 이상
+            - 너비와 높이가 0 보다 큼
             - 오른쪽 끝(x + w)이 이미지 너비 이하
             - 아래쪽 끝(y + h)이 이미지 높이 이하
     """
@@ -41,6 +41,8 @@ def is_valid(b):
     return (
         b["x"] >= 0
         and b["y"] >= 0
+        and b["w"] > 0
+        and b["h"] > 0
         and b["x"] + b["w"] <= IMG_W
         and b["y"] + b["h"] <= IMG_H
     )
@@ -98,32 +100,58 @@ def has_missing_label(name, boxes):
     return False
 
 
-def has_duplicate_box(boxes):
-    """좌표가 똑같은 박스가 2개 이상인지 검사 (한 알약에 라벨 2개)
+def iou(a, b):
+    """박스 두 개가 얼마나 겹치는지 0~1 로 계산한다
+
+    입력:
+        a, b (dict): 박스 1개씩
+
+    반환:
+        float: 겹친 넓이 / 합친 넓이. 완전히 같으면 1.0, 안 겹치면 0.0
+
+    동작:
+        1. 두 박스가 겹치는 사각형의 좌우·상하 끝을 구한다.
+        2. 겹친 넓이를 구한다. (음수면 안 겹치는 것이므로 0)
+        3. 겹친 넓이 / (두 넓이의 합 - 겹친 넓이)
+    """
+    # 1. 겹치는 사각형의 끝
+    x1 = max(a["x"], b["x"])
+    y1 = max(a["y"], b["y"])
+    x2 = min(a["x"] + a["w"], b["x"] + b["w"])
+    y2 = min(a["y"] + a["h"], b["y"] + b["h"])
+
+    # 2. 겹친 넓이
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+
+    # 3. 합친 넓이로 나누기
+    union = a["w"] * a["h"] + b["w"] * b["h"] - inter
+    return inter / union if union > 0 else 0.0
+
+
+def has_duplicate_box(boxes, threshold=0.9):
+    """한 알약 자리에 라벨이 두 개 붙었는지 검사
 
     입력:
         boxes (list): 이미지 1장의 박스 리스트
+        threshold (float): 이만큼 겹치면 중복으로 본다 (기본 0.9)
 
     반환:
-        bool: 같은 좌표가 두 번 나오면 True
+        bool: 겹치는 박스 짝이 하나라도 있으면 True
 
     동작:
-        1. 박스마다 (x, y, w, h) 좌표를 만든다.
-        2. 이미 본 좌표면 True, 처음 보면 목록에 추가한다.
-        3. 끝까지 겹치는 게 없으면 False
+        1. 박스를 두 개씩 짝지어 본다.
+        2. IoU 가 threshold 이상이면 True
+        3. 끝까지 없으면 False
 
-    예) 같은 박스에 16548 과 33009 라벨이 둘 다 붙은 경우. 한쪽 라벨은 다른 알약 자리가 비어 있다.
+    알약은 서로 떨어져 놓여 있어서 정상이면 IoU 가 0 에 가깝다.
+    0.9 넘게 겹쳤다면 한 알약에 라벨 두 개가 붙은 것이고, 그러면 다른 알약은 라벨이 없다.
+    예) 16548 과 33009 가 완전히 같은 좌표를 가진 원본 JSON 오류.
     """
-    seen = []
-
-    for b in boxes:
-        # 1. 좌표
-        pos = (b["x"], b["y"], b["w"], b["h"])
-
-        # 2. 겹침 확인
-        if pos in seen:
-            return True
-        seen.append(pos)
+    # 1~2. 두 개씩 짝지어 비교
+    for i in range(len(boxes)):
+        for j in range(i + 1, len(boxes)):
+            if iou(boxes[i], boxes[j]) >= threshold:
+                return True
 
     # 3. 겹침 없음
     return False
@@ -261,7 +289,8 @@ def split_by_combo(names):
         1. 파일명마다 조합 ID를 뽑고 중복을 없애서 정렬한다. (114개)
         2. 시드를 고정하고 섞는다.
         3. 앞에서 20% 조합을 val 후보로 정한다.
-        4. 그 중 '조합이 1개뿐인 약'을 가진 조합은 후보에서 빼서 train 에 남긴다.
+        4. train 에서 아예 사라지는 약이 생기면, 그 약이 든 val 조합을 train 으로 되돌린다.
+           없어질 때까지 반복한다.
         5. 이미지마다 조합이 val 쪽이면 val, 아니면 train 에 넣는다.
 
     이미지가 아니라 조합으로 나누는 이유:
@@ -271,18 +300,24 @@ def split_by_combo(names):
     # 1. 조합 ID 목록 (정렬해야 섞기 전 순서가 매번 같다)
     combos = sorted(set(get_combo(name) for name in names))
 
-    # 2. 시드 고정 후 섞기
-    random.seed(SEED)
-    random.shuffle(combos)
+    # 2. 시드 고정 후 섞기 (전역 시드를 건드리지 않게 따로 만든다)
+    random.Random(SEED).shuffle(combos)
 
     # 3. 앞에서 20%를 val 후보로
     n_val = int(len(combos) * VAL_RATIO)
+    val_combos = set(combos[:n_val])
 
-    # 4. 조합이 1개뿐인 약을 가진 조합은 val 에서 빼기
-    #    그 조합을 val 로 보내면 해당 약이 train 에서 0장이 되어 학습 자체가 불가능해진다.
+    # 4. train 에서 사라지는 약이 있으면 그 약이 든 val 조합을 train 으로 되돌린다.
+    #    train 박스가 0개인 약은 학습 자체가 불가능한데 val 에서는 점수만 깎인다.
     #    (56종 중 17종이 조합 1개뿐이라 시드에 따라 매번 다른 약이 이렇게 죽는다)
-    counts = Counter(code for combo in combos for code in get_codes(combo))
-    val_combos = {c for c in combos[:n_val] if all(counts[code] > 1 for code in get_codes(c))}
+    all_codes = {code for c in combos for code in get_codes(c)}
+    while True:
+        train_codes = {code for c in combos if c not in val_combos for code in get_codes(c)}
+        missing = all_codes - train_codes
+        if not missing:
+            break
+        # 사라진 약이 들어 있는 val 조합 하나를 train 으로 되돌린다
+        val_combos.remove(next(c for c in val_combos if set(get_codes(c)) & missing))
 
     # 5. 이미지를 조합에 따라 나누기
     train = [name for name in names if get_combo(name) not in val_combos]
@@ -326,7 +361,7 @@ def write_split(ann, names, split, class_to_idx):
         lines = [to_yolo_line(b, class_to_idx[b["class_id"]]) for b in ann[name]]
 
         # 2-c. 줄바꿈으로 이어서 저장. 파일명은
-        (lbl_dir / name.replace(".png", ".txt")).write_text("\n".join(lines) + "\n")
+        (lbl_dir / name.replace(".png", ".txt")).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def write_yaml(class_ids):
@@ -360,7 +395,7 @@ def write_yaml(class_ids):
     # 2. 번호 -> 약 ID
     for i, cid in enumerate(class_ids):
         lines.append(f"  {i}: '{cid}'")
-    (OUT / "data.yaml").write_text("\n".join(lines) + "\n")
+    (OUT / "data.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ---------- 실행 ----------
