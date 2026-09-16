@@ -194,11 +194,11 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 
 | 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |
 |---|---|---|---|---|---|---|
-| 1 | 0.39275 | imgsz960, ep200 | 윤성원 | 0.9401 | 09-15 16:22 | 가설 하이퍼파라미터를 따르되 epoch를 200으로 과하게 잡아봄 patience150으로 중간에 더 이상 변화가 없으면 중단 |
-| 2 | 0.39139 | jw_ep100_img960_batch8_lr0.00 | 엄재웅 | 0.9321 | 09-15 16:09 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 |
-| 3 | 0.39071 | jw_ep100_img960_batch8_lr0.00_preprocess | 엄재웅 | 0.9534 | 09-15 17:35 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / 전처리(라벨없는 이미지, 중복 라벨 이미지, 이미지 밖 bbox보유 이미지 제외) |
-| 4 | 0.37169 | baseline | 윤성원 | 0.8855 | 09-15 11:41 | 기본값 베이스라인 |
-| 5 | 0.3658 | yolo26n→yolo26s_imgsz960_epochs50 | 김라희 | 0.9146 | 09-15 17:16 | yolo26n→yolo26s (모델만 확장, epoch은 50 유지 — 100epoch은 학습시간·발열 부담으로 축소). predict: CONF 0.001→0.4, agnostic_nms=True 추가 |
+| 1 | 0.41504 | jw_ep100_img960_batch8_lr0.001_resplit | 엄재웅 | 0.984 | 09-16 09:59 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / val 재분할(train에 모든 클래스가 학습될 수 있도록) |
+| 2 | 0.41264 | imgsz1024, ep150, batch=4 | 윤성원 | 0.9918 | 09-16 16:11 | imgsz=1024, batch=4 가 현재까지 점수가 제일 좋아 EPOCHS=150으로 값 조정 |
+| 3 | 0.40805 | jw_ep100_img1280_batch4_lr0.001_fit75 | 엄재웅 | 0.984 | 09-16 12:08 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / best.pt 기준 변경(대회지표로) |
+| 4 | 0.4062 | yolo26n_clean_v2 | 김라희 | 0.995 | 09-16 11:17 | yolo26n_clean_ep150 설정 유지 + 라벨 누락 의심 이미지 8장 추가 제외(콤보명-실제라벨 불일치, 3351 4건 포함), imgsz는 960 유지 |
+| 5 | 0.3938 | yolo26n_clean_ep150 | 김라희 | 0.9929 | 09-16 09:36 | 라벨 정제(중복 3장 제외) + train 누락 클래스(33009) 복구 + cls 1.0 + weight_decay 0.001 + epochs150/patience60/close_mosaic45 + predict conf 재검증(0.4 vs 0.15~0.2) |
 <!-- 실험그래프 끝 -->
 
 ## 실험 기록 자동화
