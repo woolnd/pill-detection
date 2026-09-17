@@ -32,13 +32,15 @@ AUTHOR=<본인 이름>                          # 실험 기록의 author 칸
 ## 전체 실행 순서
 
 ```bash
-uv run --env-file .env python src/download_data.py   # 1. Kaggle 데이터 다운로드
-uv run python src/make_yolo.py                       # 2. 라벨 정리 + COCO JSON → YOLO 변환 + train/val 분할
-uv run python src/check_yolo.py                      #    변환 결과 검증
-uv run python src/train.py                           # 3. 학습 + val 평가 + 실험 기록(csv·구글 시트)
-uv run python src/visualize.py                       # 4. val 예측 시각화 · 실패 사례 · 클래스별 점수
-uv run python src/predict.py                         # 5. test 예측 → Kaggle 제출 파일
+uv run --env-file .env python -m src.data.download_data   # 1. Kaggle 데이터 다운로드
+uv run python -m src.data.make_yolo                      # 2. 라벨 정리 + COCO JSON → YOLO 변환 + train/val 분할
+uv run python -m src.data.check_yolo                     #    변환 결과 검증
+uv run python -m src.train.train_yolo                    # 3. 학습 + val 평가 + 실험 기록(csv·구글 시트)
+uv run python -m src.analysis.visualize                  # 4. val 예측 시각화 · 실패 사례 · 클래스별 점수
+uv run python -m src.analysis.predict                    # 5. test 예측 → Kaggle 제출 파일
 ```
+
+모든 스크립트는 **프로젝트 루트에서 `python -m src.폴더.파일`** 형태로 실행합니다. (`python src/data/make_yolo.py` 처럼 경로로 실행하면 `from src.config import ...` 를 찾지 못합니다)
 
 ## 디렉터리
 
@@ -46,23 +48,27 @@ uv run python src/predict.py                         # 5. test 예측 → Kaggle
 data/raw/      Kaggle 원본 데이터 (git 제외)
 data/yolo/     YOLO 형식으로 변환된 데이터셋 (git 제외)
 runs/          학습 결과 · 가중치 · 분석 그림 · 제출 파일 (git 제외)
-src/           데이터 · 학습 · 평가 · 기록 스크립트
+src/           공통 모듈 (config · annotations · sheet)
+src/data/      데이터 다운로드 · 확인 · YOLO 변환
+src/train/     학습 (YOLO, Faster R-CNN · RetinaNet 비교용)
+src/analysis/  예측 · 시각화 · 모르는 약 필터 · README 그래프
 docs/images/   README 실험 그래프 (GitHub Actions가 자동 갱신)
 .github/       이슈·PR 템플릿, README 그래프 갱신 워크플로
 ```
 
 | 파일 | 역할 |
 |---|---|
-| `src/download_data.py` | Kaggle 대회 데이터를 `data/raw/`에 다운로드 |
-| `src/annotations.py` | (이미지 × 알약)당 JSON 1개인 라벨을 이미지 파일명 기준으로 묶기 |
-| `src/check_data.py` | 데이터 요약 + 박스 시각화 |
-| `src/make_yolo.py` | 문제 있는 이미지 제외 → YOLO 라벨 변환 → 조합 단위 train/val 분할 |
-| `src/check_yolo.py` | YOLO 라벨을 픽셀로 되돌려 원본과 비교 |
-| `src/train.py` | 학습, val 평가(mAP75-95), 실험 기록 |
-| `src/visualize.py` | val 예측/정답 비교 그림, 오류 유형 집계, 클래스별 AP, 학습 곡선 |
-| `src/predict.py` | test 842장 예측 → 제출 형식 csv |
+| `src/config.py` | 공통 경로(`KAGGLE_DIR`, `YOLO_DIR`, `RUNS_DIR` 등) · `SEED` · `get_device` |
+| `src/annotations.py` | (이미지 × 알약)당 JSON 1개인 라벨을 이미지 파일명 기준으로 묶기 · `compute_iou` |
 | `src/sheet.py` | 구글 시트(Apps Script 웹앱)로 실험 기록 전송 |
-| `src/plot_experiments.py` | 시트 기록으로 README 실험 그래프(SVG) 생성 |
+| `src/data/download_data.py` | Kaggle 대회 데이터를 `data/raw/`에 다운로드 |
+| `src/data/check_raw.py` | 원본 데이터 요약 + 박스 시각화 |
+| `src/data/make_yolo.py` | 문제 있는 이미지 제외 → YOLO 라벨 변환 → 조합 단위 train/val 분할 |
+| `src/data/check_yolo.py` | YOLO 라벨을 픽셀로 되돌려 원본과 비교 |
+| `src/train/train_yolo.py` | YOLO 학습, val 평가(mAP75-95), 실험 기록 |
+| `src/analysis/visualize.py` | val 예측/정답 비교 그림, 오류 유형 집계, 클래스별 AP, 학습 곡선 |
+| `src/analysis/predict.py` | test 842장 예측 → 제출 형식 csv |
+| `src/analysis/plot_experiments.py` | 시트 기록으로 README 실험 그래프(SVG) 생성 |
 
 ## 데이터
 
@@ -91,7 +97,7 @@ data/raw/sprint_ai_project1_data/
 
 ## 전처리
 
-`src/make_yolo.py`가 아래 순서로 `data/yolo/`를 만듭니다.
+`src/data/make_yolo.py`가 아래 순서로 `data/yolo/`를 만듭니다.
 
 **1. 문제 있는 이미지 제외 (232장 → 220장)**
 
@@ -109,25 +115,25 @@ data/raw/sprint_ai_project1_data/
 
 | 결과 | 값 |
 |---|---|
-| train / val | 181장 / 39장 |
-| val에만 있는 클래스 | `33009` (학습 불가) |
+| train / val | 183장 / 37장 |
+| train에 없는 클래스 | 없음 (val에만 들어간 약 `33009`의 조합을 train으로 되돌림) |
 | 변환 검증 (`check_yolo.py`) | 라벨 220개, 원본과 불일치 0개 |
 
 ## 학습
 
-`src/train.py` 위쪽 설정만 바꿔서 실험합니다.
+`src/train/train_yolo.py` 위쪽 설정만 바꿔서 실험합니다.
 
 ```python
 MODEL  = "yolo26n.pt"     # 모델 크기
 EPOCHS = 100              # 학습 바퀴 수
 IMGSZ  = 960              # 입력 이미지 크기
 BATCH  = 8                # 한 번에 넣는 사진 수 (64장마다 1번 업데이트는 BATCH와 무관하게 유지)
-NAME   = "jw_clean_base"  # 실험 이름 = runs/<NAME>/ (실험마다 새 이름)
+NAME   = "jw_yolo26n_ep100_img960_b8_base"  # 실험 이름 = runs/<NAME>/ (실험마다 새 이름)
 MEMO   = "무엇을 왜 바꿨는지 한 줄"
 EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}  # 나머지 하이퍼파라미터
 ```
 
-- **한 실험에서는 설정 하나만** 바꾸고, NAME은 `이니셜_바꾼항목`으로 짓습니다. 같은 NAME이면 결과가 덮어써집니다.
+- **한 실험에서는 설정 하나만** 바꾸고, NAME은 `이니셜_모델_ep_img_b_바꾼점`으로 짓습니다(예: `jw_yolo26n_ep50_img640_b4_compare`). 같은 NAME이면 결과가 덮어써집니다.
 - `optimizer`가 기본값 `auto`면 `lr0`·`momentum`을 넣어도 무시됩니다. 학습률을 바꿀 땐 `optimizer`도 같이 지정합니다.
 - EPOCHS가 다르면 워밍업 비율·mosaic 끄는 시점도 달라집니다. 같은 EPOCHS끼리 비교합니다.
 - 16GB 맥에서 IMGSZ 960·BATCH 16은 메모리가 부족해 스왑이 발생했습니다. 960에서는 BATCH 8을 씁니다.
@@ -145,7 +151,7 @@ EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}  # 나머지 하이퍼파라�
 ## 평가 · 시각화
 
 ```bash
-uv run python src/visualize.py   # train.py 의 NAME 실험을 분석
+uv run python -m src.analysis.visualize   # train_yolo.py 의 NAME 실험을 분석
 ```
 
 val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에 저장합니다.
@@ -171,7 +177,7 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 | jw_ep100_img960_batch8_lr0.00 | 정리 전 (val 42장) | yolo26n · 960 · 100 epoch · BATCH 8 · AdamW lr0 0.001 | 0.9456 | 0.9388 | 0.9321 | 0.39139 |
 
 ※ 같은 baseline 설정을 다른 컴퓨터에서 학습한 실행(val mAP75-95 0.7179)의 제출 점수입니다.
-라벨 정리 후에는 val이 39장으로 바뀌어 위 val 점수와 직접 비교하지 않습니다. 전체 기록은 아래 「실험 기록」과 팀 구글 시트를 기준으로 합니다.
+라벨 정리·재분할 후에는 val이 37장으로 바뀌어 위 val 점수와 직접 비교하지 않습니다. 전체 기록은 아래 「실험 기록」과 팀 구글 시트를 기준으로 합니다.
 
 **val 오류 유형 (`visualize.py`, 신뢰도 0.25 이상, 정답 박스 131개)**
 
@@ -204,7 +210,7 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 ## 실험 기록 자동화
 
 ```
-train.py 학습 종료
+train_yolo.py 학습 종료
   └─ 구글 시트 experiments 탭에 한 줄 추가 (Apps Script 웹앱)
        └─ GitHub에 신호 → Actions가 시트를 읽어 README 그래프 갱신
             └─ docs/readme-graph 브랜치로 PR 생성 → 팀장이 확인 후 머지
@@ -212,7 +218,7 @@ train.py 학습 종료
 
 | 시트 열 | 입력 |
 |---|---|
-| time, author, name, memo, mAP50, mAP50-95, mAP75-95, model, epochs, imgsz, batch, seed, experiment | 자동 (`train.py`) |
+| time, author, name, memo, mAP50, mAP50-95, mAP75-95, model, epochs, imgsz, batch, seed, experiment | 자동 (`train_yolo.py`) |
 | kaggle_score, 결론 / 다음 실험 | **직접 입력** |
 
 - `SHEET_URL`은 `.env`와 저장소 Secret에만 두고 공개하지 않습니다.
@@ -222,7 +228,7 @@ train.py 학습 종료
 ## 예측 · 제출
 
 ```bash
-uv run python src/predict.py   # train.py 의 NAME 실험 best.pt 로 예측 → runs/<NAME>/submission.csv
+uv run python -m src.analysis.predict   # train_yolo.py 의 NAME 실험 best.pt 로 예측 → runs/<NAME>/submission.csv
 ```
 
 ```
@@ -241,7 +247,7 @@ annotation_id, image_id, category_id, bbox_x, bbox_y, bbox_w, bbox_h, score
 ## 알려진 이슈
 
 - 클래스 `33009`는 조합 단위 분할 결과 val에만 있어 학습되지 않습니다.
-- val(39장)이 작아 0.01~0.02 차이는 우연일 수 있고, val과 Kaggle 점수 차이가 큽니다.
+- val(37장)이 작아 0.01~0.02 차이는 우연일 수 있고, val과 Kaggle 점수 차이가 큽니다.
 - 맥 GPU(mps)에서는 일부 연산이 비결정적이라, 장치가 다르면 같은 설정·시드로도 점수가 조금 다릅니다. (같은 맥에서는 50 epoch baseline 두 번 모두 0.7225)
 
 ## 진행 단계

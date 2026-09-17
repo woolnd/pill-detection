@@ -25,7 +25,7 @@ jobs:
       - name: 시트 읽어서 README 그래프 갱신
         env:
           SHEET_URL: ${{ secrets.SHEET_URL }}
-        run: python3 src/plot_experiments.py
+        run: python3 src/analysis/plot_experiments.py
 
       - name: README 가 바뀌었으면 PR 만들기 (머지는 사람이)
         env:

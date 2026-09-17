@@ -5,8 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "accelerate>=1.15.0",
     "kagglehub>=1.0.2",
     "pandas>=3.0.5",
     "python-dotenv>=1.2.3",
+    "transformers>=5.17.0",
     "ultralytics>=8.4.146",
 ]
