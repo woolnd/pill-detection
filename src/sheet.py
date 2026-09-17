@@ -1,7 +1,7 @@
 """구글 시트(Apps Script 웹앱)로 데이터 보내기
 
 준비: .env 에 SHEET_URL=https://script.google.com/macros/s/.../exec, AUTHOR=이름 추가 (.env 는 커밋 금지)
-사용: train.py (학습 끝나면 실험 기록 한 줄 추가), plot_experiments.py 는 같은 URL 로 읽기만 함
+사용: src/train/train_yolo.py (학습 끝나면 실험 기록 한 줄 추가), plot_experiments.py 는 같은 URL 로 읽기만 함
 """
 
 import json

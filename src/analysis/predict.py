@@ -1,6 +1,6 @@
 """test 이미지 예측 -> Kaggle 제출 파일(csv) 만들기
 
-실행: uv run python src/predict.py   (train.py 로 학습을 먼저 끝내야 한다)
+실행: uv run python -m src.analysis.predict   (train_yolo.py 로 학습을 먼저 끝내야 한다)
 결과: runs/<NAME>/submission.csv
 
 제출 형식 (Kaggle Evaluation 탭):
@@ -15,60 +15,19 @@
 import pandas as pd
 from ultralytics import YOLO
 
-from annotations import RAW
-from train import IMGSZ, NAME, RUNS, get_device
+from src.config import KAGGLE_DIR, RUNS_DIR, get_device
+from src.train.train_yolo import IMGSZ, NAME
 
 # ===== 설정값 =====
 WEIGHTS = (
-    RUNS / NAME / "weights" / "best.pt"
-)  # 제출할 모델 (train.py 의 NAME 실험 결과)
-TEST_DIR = RAW / "test_images"  # test 이미지 842장
-OUT_CSV = RUNS / NAME / "submission.csv"  # 제출 파일 (실험 폴더 안에 같이 저장)
+    RUNS_DIR / NAME / "weights" / "best.pt"
+)  # 제출할 모델 (train_yolo.py 의 NAME 실험 결과)
+TEST_DIR = KAGGLE_DIR / "test_images"  # test 이미지 842장
+OUT_CSV = RUNS_DIR / NAME / "submission.csv"  # 제출 파일 (실험 폴더 안에 같이 저장)
 CONF = 0.001  # 이 신뢰도 미만 박스는 버린다. mAP 는 낮은 점수 박스까지 보고 계산해서 낮게 둔다 (0.25 와 비교 제출해보기)
 
 
-def to_rows(result, image_id, names):
-    """이미지 1장의 예측 결과를 제출 행 리스트로 바꾼다
-
-    입력:
-        result (Results): model.predict() 결과 1장
-        image_id (int): 이미지 번호  예) 123
-        names (dict): YOLO 번호 -> 약 ID 문자열  예) {0: '1900', 1: '2483', ...}
-
-    반환:
-        list: 박스마다 dict 1개
-              예) [{"image_id": 123, "category_id": 1900,
-                    "bbox_x": 156, "bbox_y": 247, "bbox_w": 211, "bbox_h": 456, "score": 0.91}, ...]
-
-    동작:
-        1. 박스마다 좌표(xyxy), 클래스 번호, 신뢰도를 꺼낸다.
-           (xyxy = 왼쪽 위 x1, y1 + 오른쪽 아래 x2, y2. 원본 이미지 픽셀 기준)
-        2. YOLO 번호를 names 로 약 ID 로 되돌린다.
-        3. x2, y2 를 너비, 높이로 바꾼다. (너비 = x2 - x1)
-        4. 제출 예시처럼 좌표는 정수로 반올림한다.
-    """
-
-    rows = []
-    boxes = result.boxes
-
-    for (x1, y1, x2, y2), cls, score in zip(
-        boxes.xyxy.tolist(), boxes.cls.tolist(), boxes.conf.tolist()
-    ):
-        rows.append(
-            {
-                "image_id": image_id,
-                "category_id": int(names[int(cls)]),  # 2. YOLO 번호 -> 약 ID
-                "bbox_x": round(x1),  # 3~4. 왼쪽 위 x
-                "bbox_y": round(y1),  #      왼쪽 위 y
-                "bbox_w": round(x2 - x1),  #      너비
-                "bbox_h": round(y2 - y1),  #      높이
-                "score": round(score, 4),
-            }
-        )
-    return rows
-
-
-def predict_all(weights, image_dir, device):
+def predict_test(weights, image_dir, device):
     """test 이미지 전체를 예측해서 제출 표를 만든다
 
     입력:
@@ -101,8 +60,57 @@ def predict_all(weights, image_dir, device):
     return df
 
 
+def to_rows(result, image_id, names):
+    """이미지 1장의 예측 결과를 제출 행 리스트로 바꾼다
+
+    입력:
+        result (Results): model.predict() 결과 1장
+        image_id (int): 이미지 번호  예) 123
+        names (dict): YOLO 번호 -> 약 ID 문자열  예) {0: '1900', 1: '2483', ...}
+
+    반환:
+        list: 박스마다 dict 1개
+              예) [{"image_id": 123, "category_id": 1900,
+                    "bbox_x": 156, "bbox_y": 247, "bbox_w": 211, "bbox_h": 456, "score": 0.91}, ...]
+
+    동작:
+        1. 박스마다 좌표(xyxy), 클래스 번호, 신뢰도를 꺼낸다.
+           (xyxy = 왼쪽 위 x1, y1 + 오른쪽 아래 x2, y2. 원본 이미지 픽셀 기준)
+        2. YOLO 번호를 names 로 약 ID 로 되돌린다.
+        3. x2, y2 를 너비, 높이로 바꾼다. (너비 = x2 - x1)
+        4. 제출 예시처럼 좌표는 정수로 반올림한다.
+    """
+    # 1. 좌표, 클래스 번호, 신뢰도를 리스트로
+    xyxy = result.boxes.xyxy.tolist()  # 예) [[156.2, 247.1, 367.5, 703.4], ...]
+    classes = result.boxes.cls.tolist()  # 예) [0.0, 15.0, ...]
+    scores = result.boxes.conf.tolist()  # 예) [0.91, 0.85, ...]
+
+    rows = []
+    for i in range(len(scores)):
+        x1, y1, x2, y2 = xyxy[i]
+        cls = classes[i]
+        score = scores[i]
+        rows.append(
+            {
+                "image_id": image_id,
+                "category_id": int(names[int(cls)]),  # 2. YOLO 번호 -> 약 ID
+                "bbox_x": round(x1),  # 3~4. 왼쪽 위 x
+                "bbox_y": round(y1),  #      왼쪽 위 y
+                "bbox_w": round(x2 - x1),  #      너비
+                "bbox_h": round(y2 - y1),  #      높이
+                "score": round(score, 4),
+            }
+        )
+    return rows
+
+
 def main():
     """전체 순서
+
+    입력: 없음
+
+    반환:
+        없음. runs/<NAME>/submission.csv 를 저장한다.
 
     동작:
         1. 장치 선택
@@ -114,7 +122,7 @@ def main():
     print("모델:", WEIGHTS)
 
     # 2. 예측
-    df = predict_all(WEIGHTS, TEST_DIR, device)
+    df = predict_test(WEIGHTS, TEST_DIR, device)
 
     # 3. 저장 + 요약
     df.to_csv(OUT_CSV, index=False)

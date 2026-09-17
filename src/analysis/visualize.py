@@ -1,11 +1,11 @@
 """val 예측 결과 시각화 + 실패 사례 분석
 
-실행: uv run python src/visualize.py   (train.py 로 학습을 먼저 끝내야 한다)
+실행: uv run python -m src.analysis.visualize   (train_yolo.py 로 학습을 먼저 끝내야 한다)
 결과: runs/<NAME>_analysis/
         ├── failures.png    실패가 있는 val 이미지 6장 (정답 박스 + 예측 박스)
         ├── curves.png      epoch 별 loss, mAP 곡선
         ├── class_ap.csv    클래스별 AP50, AP75-95 (낮은 순)
-        └── val/            class_table() 이 val 평가할 때 만드는 폴더
+        └── val/            make_class_table() 이 val 평가할 때 만드는 폴더
 
 예측 결과 분류 (그림에 한글을 쓰면 글자가 깨져서 약어로 표시한다):
     OK   정답         클래스 맞음 + IoU 0.75 이상
@@ -25,14 +25,14 @@ import pandas as pd
 from matplotlib.patches import Rectangle
 from ultralytics import YOLO
 
-from annotations import load_annotations
-from make_yolo import OUT
-from train import DATA_YAML, IMGSZ, NAME, RUNS, get_device
+from src.annotations import compute_iou, load_annotations
+from src.config import DATA_YAML, RUNS_DIR, YOLO_DIR, get_device
+from src.train.train_yolo import IMGSZ, NAME
 
 # ===== 설정값 =====
-WEIGHTS = RUNS / NAME / "weights" / "best.pt"  # 분석할 모델
-VAL_DIR = OUT / "images" / "val"  # val 이미지 42장
-ANALYSIS = RUNS / f"{NAME}_analysis"  # 결과 저장 폴더
+WEIGHTS = RUNS_DIR / NAME / "weights" / "best.pt"  # 분석할 모델
+VAL_DIR = YOLO_DIR / "images" / "val"  # val 이미지 37장
+ANALYSIS_DIR = RUNS_DIR / f"{NAME}_analysis"  # 결과 저장 폴더
 CONF = 0.25  # 그림용 신뢰도 기준 (제출용 0.001 이면 박스가 너무 많아 안 보인다)
 MATCH_IOU = 0.5  # 이 이상 겹치면 같은 알약을 가리킨 것으로 본다
 GOOD_IOU = 0.75  # 대회 지표 하한. 이 이상이어야 위치가 맞은 것
@@ -72,21 +72,21 @@ def predict_val(model, device):
            b. YOLO 번호를 약 ID 로 되돌린다.
            c. 딕셔너리로 만들어 리스트에 넣는다.
     """
-
     preds = {}
 
     # 1. 이미지마다 예측
     for path in sorted(VAL_DIR.glob("*.png")):
-        result = model.predict(
-            path, imgsz=IMGSZ, conf=CONF, device=device, verbose=False
-        )[0]
-        boxes = result.boxes
+        result = model.predict(path, imgsz=IMGSZ, conf=CONF, device=device, verbose=False)[0]
+        xyxy = result.boxes.xyxy.tolist()  # 예) [[640.2, 856.1, 848.5, 1022.3], ...]
+        classes = result.boxes.cls.tolist()
+        scores = result.boxes.conf.tolist()
 
         # 2. 박스마다 (predict.py 의 to_rows 와 같은 방식)
         rows = []
-        for (x1, y1, x2, y2), cls, score in zip(
-            boxes.xyxy.tolist(), boxes.cls.tolist(), boxes.conf.tolist()
-        ):
+        for i in range(len(scores)):
+            x1, y1, x2, y2 = xyxy[i]
+            cls = classes[i]
+            score = scores[i]
             rows.append(
                 {
                     "x": x1,  # 2-a. 왼쪽 위 x
@@ -102,41 +102,7 @@ def predict_val(model, device):
 
 
 # ---------- 2. 예측과 정답 짝짓기 ----------
-def compute_iou(a, b):
-    """두 박스가 얼마나 겹치는지(IoU) 계산한다
-
-    입력:
-        a (dict): 박스 1개 (x, y, w, h 키가 있으면 정답이든 예측이든 된다)
-        b (dict): 박스 1개
-
-    반환:
-        float: 0~1. 겹친 넓이 / 합친 넓이
-               예) 완전히 같으면 1.0, 안 겹치면 0.0
-
-    동작:
-        1. 겹치는 영역의 네 변을 구한다.
-           왼쪽 = 두 왼쪽 중 큰 값, 오른쪽 = 두 오른쪽 중 작은 값 (위, 아래도 같은 방식)
-        2. 겹친 넓이 = 가로 x 세로. 안 겹치면 음수가 나오니까 0 으로 막는다.
-        3. 합친 넓이 = 두 박스 넓이 합 - 겹친 넓이 (겹친 부분이 두 번 더해져서 한 번 뺀다)
-        4. 겹친 넓이 / 합친 넓이
-    """
-    # 1. 겹치는 영역의 네 변
-    left = max(a["x"], b["x"])
-    top = max(a["y"], b["y"])
-    right = min(a["x"] + a["w"], b["x"] + b["w"])
-    bottom = min(a["y"] + a["h"], b["y"] + b["h"])
-
-    # 2. 겹친 넓이
-    inter = max(0, right - left) * max(0, bottom - top)
-
-    # 3. 합친 넓이
-    union = a["w"] * a["h"] + b["w"] * b["h"] - inter
-
-    # 4. IoU
-    return inter / union
-
-
-def match(preds, gts):
+def match_boxes(preds, gts):
     """이미지 1장의 예측과 정답을 짝지어 분류한다
 
     입력:
@@ -159,7 +125,7 @@ def match(preds, gts):
               클래스가 다르면 CLS, IoU 0.75 이상이면 OK, 아니면 LOC
         3. 끝까지 짝이 없는 정답은 FN
 
-    정답 좌표는 check_yolo.read_label() 대신 원본 JSON 을 쓴다. (read_label 은 정수로 잘라서 1px 오차가 생김)
+    정답 좌표는 check_yolo.load_label() 대신 원본 JSON 을 쓴다. (load_label 은 정수로 잘라서 1px 오차가 생김)
     """
     results = []
     used = []  # 짝이 정해진 정답 번호
@@ -179,11 +145,13 @@ def match(preds, gts):
                 best_iou = iou
                 best_j = j
 
-        # 2-b. 짝 없음 -> DUP 또는 FP
+        # 2-b. 짝 없음 -> DUP 또는 FP (짝 있는 정답까지 포함한 최대 IoU 로 판단)
         if best_iou < MATCH_IOU:
-            max_iou = max(
-                compute_iou(p, gt) for gt in gts
-            )  # 짝 있는 정답까지 포함한 최대 IoU
+            max_iou = 0
+            for gt in gts:
+                iou = compute_iou(p, gt)
+                if iou > max_iou:
+                    max_iou = iou
             if max_iou >= MATCH_IOU:
                 status = "DUP"
             else:
@@ -209,12 +177,12 @@ def match(preds, gts):
     return results
 
 
-# ---------- 3. 개수 세기 / 그림 ----------
+# ---------- 3. 개수 세기 / 실패 그림 ----------
 def count_status(all_results):
     """분류별 개수를 센다
 
     입력:
-        all_results (dict): 이미지 파일명 -> match() 결과
+        all_results (dict): 이미지 파일명 -> match_boxes() 결과
 
     반환:
         dict: 분류 -> 개수  예) {"OK": 93, "LOC": 0, "CLS": 24, "DUP": 17, "FP": 3, "FN": 14}
@@ -224,7 +192,9 @@ def count_status(all_results):
         2. 모든 이미지의 결과를 보면서 해당 분류에 1 을 더한다.
     """
     # 1. 0 으로 시작
-    counts = {status: 0 for status in COLORS}
+    counts = {}
+    for status in COLORS:
+        counts[status] = 0
 
     # 2. 하나씩 더하기
     for results in all_results.values():
@@ -233,13 +203,51 @@ def count_status(all_results):
     return counts
 
 
-def draw(ax, image_path, results):
+def save_failures(all_results, n=6):
+    """실패가 하나라도 있는 이미지를 모아서 그림으로 저장한다
+
+    입력:
+        all_results (dict): 이미지 파일명 -> match_boxes() 결과
+        n (int): 그릴 장수 (6 이하)
+
+    반환:
+        failed (list): 실패가 있는 이미지 파일명 리스트
+        path (Path): 저장한 그림 경로  예) runs/baseline_analysis/failures.png
+
+    동작:
+        1. 결과 중 OK 가 아닌 게 하나라도 있는 이미지를 고른다.
+        2. 앞에서 n장을 2행 3열로 그린다.
+        3. png 로 저장한다.
+    """
+    # 1. 실패 포함 이미지
+    failed = []
+    for name, results in all_results.items():
+        for r in results:
+            if r["status"] != "OK":
+                failed.append(name)
+                break  # 하나만 찾으면 이 이미지는 끝
+
+    # 2. 2행 3열
+    plt.figure(figsize=(12, 10))
+    for i, name in enumerate(failed[:n]):
+        ax = plt.subplot(2, 3, i + 1)  # subplot 번호는 1부터
+        draw_boxes(ax, VAL_DIR / name, all_results[name])
+
+    # 3. 저장
+    plt.tight_layout()
+    path = ANALYSIS_DIR / "failures.png"
+    plt.savefig(path, dpi=150)
+    plt.close()
+    return failed, path
+
+
+def draw_boxes(ax, image_path, results):
     """이미지 1장에 정답 박스와 분류별 예측 박스를 그린다
 
     입력:
         ax (Axes): 그릴 칸
         image_path (Path): 이미지 경로
-        results (list): match() 결과
+        results (list): match_boxes() 결과
 
     반환:
         없음. ax 에 그린다.
@@ -331,46 +339,8 @@ def draw(ax, image_path, results):
     ax.axis("off")
 
 
-def save_failures(all_results, n=6):
-    """실패가 하나라도 있는 이미지를 모아서 그림으로 저장한다
-
-    입력:
-        all_results (dict): 이미지 파일명 -> match() 결과
-        n (int): 그릴 장수 (6 이하)
-
-    반환:
-        failed (list): 실패가 있는 이미지 파일명 리스트
-        path (Path): 저장한 그림 경로  예) runs/baseline_analysis/failures.png
-
-    동작:
-        1. 결과 중 OK 가 아닌 게 하나라도 있는 이미지를 고른다.
-        2. 앞에서 n장을 2행 3열로 그린다.
-        3. png 로 저장한다.
-    """
-    # 1. 실패 포함 이미지
-    failed = []
-    for name, results in all_results.items():
-        for r in results:
-            if r["status"] != "OK":
-                failed.append(name)
-                break  # 하나만 찾으면 이 이미지는 끝
-
-    # 2. 2행 3열
-    plt.figure(figsize=(12, 10))
-    for i, name in enumerate(failed[:n]):
-        ax = plt.subplot(2, 3, i + 1)  # subplot 번호는 1부터
-        draw(ax, VAL_DIR / name, all_results[name])
-
-    # 3. 저장
-    plt.tight_layout()
-    path = ANALYSIS / "failures.png"
-    plt.savefig(path, dpi=150)
-    plt.close()
-    return failed, path
-
-
 # ---------- 4. 클래스별 점수 / 학습 곡선 ----------
-def class_table(model, device, ann):
+def make_class_table(model, device, ann):
     """클래스별 AP 표를 만든다
 
     입력:
@@ -387,7 +357,7 @@ def class_table(model, device, ann):
         2. 약 ID -> 한글 이름 표를 만든다.
         3. all_ap 행마다
            a. ap_class_index 로 이 행이 몇 번 클래스인지 찾고 약 ID 로 바꾼다.
-           b. AP50 = 0번 열, AP75-95 = 5번 열부터 평균 (train.py 의 evaluate 와 같은 방식)
+           b. AP50 = 0번 열, AP75-95 = 5번 열부터 평균 (train_yolo.py 의 evaluate 와 같은 방식)
         4. AP75-95 낮은 순으로 정렬한다.
     """
     # 1. val 평가
@@ -398,7 +368,7 @@ def class_table(model, device, ann):
         device=device,
         verbose=False,
         plots=False,
-        project=str(ANALYSIS),
+        project=str(ANALYSIS_DIR),
         name="val",
         exist_ok=True,
     )
@@ -442,7 +412,7 @@ def plot_curves():
         3. png 로 저장한다.
     """
     # 1. 학습 로그
-    df = pd.read_csv(RUNS / NAME / "results.csv")
+    df = pd.read_csv(RUNS_DIR / NAME / "results.csv")
 
     # 2. 세 칸 (칸 제목, 그릴 열 이름들)
     panels = [
@@ -462,7 +432,7 @@ def plot_curves():
 
     # 3. 저장
     plt.tight_layout()
-    path = ANALYSIS / "curves.png"
+    path = ANALYSIS_DIR / "curves.png"
     plt.savefig(path, dpi=150)
     plt.close()
     return path
@@ -472,15 +442,20 @@ def plot_curves():
 def main():
     """전체 순서
 
+    입력: 없음
+
+    반환:
+        없음. runs/<NAME>_analysis/ 에 그림과 표를 저장한다.
+
     동작:
         1. 결과 폴더, 장치, 모델, 원본 정답 준비
-        2. val 예측 -> 이미지마다 match()
+        2. val 예측 -> 이미지마다 match_boxes()
         3. 분류별 개수 출력 + 실패 사례 그림 저장
         4. 클래스별 AP 표 저장 (낮은 10개 출력)
         5. 학습 곡선 저장
     """
     # 1. 준비
-    ANALYSIS.mkdir(parents=True, exist_ok=True)
+    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
     device = get_device()
     model = YOLO(WEIGHTS)
     ann = load_annotations()
@@ -489,7 +464,7 @@ def main():
     preds = predict_val(model, device)
     all_results = {}
     for name in preds:
-        all_results[name] = match(preds[name], ann[name])
+        all_results[name] = match_boxes(preds[name], ann[name])
 
     # 3. 개수 + 실패 그림
     print(count_status(all_results))
@@ -497,8 +472,8 @@ def main():
     print(f"실패 포함 이미지 {len(failed)} / {len(all_results)}장:", path)
 
     # 4. 클래스별 AP
-    table = class_table(model, device, ann)
-    table.to_csv(ANALYSIS / "class_ap.csv", index=False)
+    table = make_class_table(model, device, ann)
+    table.to_csv(ANALYSIS_DIR / "class_ap.csv", index=False)
     print(table.head(10).to_string(index=False))
 
     # 5. 학습 곡선

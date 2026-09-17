@@ -1,6 +1,6 @@
 """YOLO 학습 + 대회 지표(mAP[0.75:0.95]) 확인
 
-실행: uv run python src/train.py   (make_yolo.py 를 먼저 실행해야 한다)
+실행: uv run python -m src.train.train_yolo   (make_yolo.py 를 먼저 실행해야 한다)
 결과: runs/<NAME>/weights/best.pt
       runs/<NAME>/args.yaml      이번 실험에 실제로 쓰인 설정값 전체
       runs/<NAME>/results.csv    epoch 별 loss, mAP, 학습률(lr/pg0)
@@ -11,25 +11,21 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import torch
 from ultralytics import YOLO
-
-from sheet import post_to_sheet
 from ultralytics.utils.metrics import DetMetrics
 
-# ===== 경로 =====
-ROOT = Path(__file__).resolve().parent.parent
-DATA_YAML = ROOT / "data" / "yolo" / "data.yaml"  # make_yolo.py 결과
-RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
+from src.config import DATA_YAML, RUNS_DIR, SEED, get_device
+from src.sheet import post_to_sheet
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
 EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
-IMGSZ = 960  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
-BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
-SEED = 42  # 랜덤 고정
-NAME = "jw_ep100_img960_batch8_lr0.001_clspw0.5"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
-MEMO = "epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / cls_pw 0.5 (희소 클래스 17종이 train 박스 2~3개)"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
+IMGSZ = 1280  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
+BATCH = 4  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
+# 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
+# 규칙: 이니셜_모델_ep_img_b_바꾼점  예) "jw_yolo26n_ep50_img640_b4_compare"
+NAME = "jw_ep100_img1280_batch4_lr0.001_cos_lr"
+MEMO = "epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / cos_lr: True"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
 
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
@@ -63,28 +59,7 @@ MEMO = "epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / cls_pw 0.5 (희소 클
 # ----- 기타 -----
 #   "patience": 100       N epoch 동안 val 점수가 안 오르면 멈춤. 30
 #   "freeze": None        앞쪽 N층 고정 (데이터 적을 때 과적합 방지). 10
-EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}
-
-
-def get_device():
-    """학습에 쓸 장치 고르기
-
-    입력: 없음
-
-    반환:
-        str: "0" (NVIDIA GPU) / "mps" (맥 GPU) / "cpu"
-
-    동작:
-        1. NVIDIA GPU 가 있으면 "0"
-        2. 맥 GPU(mps) 가 있으면 "mps"
-        3. 둘 다 없으면 "cpu"
-    """
-    if torch.cuda.is_available():
-        return "0"
-
-    if torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
+EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001, "cos_lr": True}
 
 
 def make_train_args(device):
@@ -111,10 +86,41 @@ def make_train_args(device):
         "device": device,
         "seed": SEED,
         "deterministic": True,  # 같은 설정이면 같은 결과
-        "project": str(RUNS),
+        "project": str(RUNS_DIR),
         "name": NAME,
         "exist_ok": True,  # 같은 이름 폴더가 있으면 덮어쓰기
     }
+
+
+# ===== best.pt 선택 기준 (학습 중에 쓰인다) =====
+def fitness75(self):
+    """best.pt 를 고를 때 쓸 점수를 대회 지표(mAP75-95)로 계산한다
+
+    입력:
+        self (DetMetrics): ultralytics 가 매 epoch val 을 끝내고 넘겨주는 지표 객체
+
+    반환:
+        float: IoU 0.75~0.95 구간의 평균 AP. 아직 예측이 없으면 0.0
+
+    동작:
+        1. all_ap (클래스 수 x IoU 10칸) 가 비어 있으면 0.0 을 준다. (학습 초반)
+        2. 5번 칸부터(= IoU 0.75, 0.80, 0.85, 0.90, 0.95) 만 평균을 낸다.
+
+    ultralytics 기본값은 mAP50-95 라서, 대회가 점수를 주지 않는 IoU 0.50~0.70
+    구간까지 보고 best.pt 를 고른다. patience 조기종료도 같은 값을 본다.
+    """
+    # 1. 아직 예측이 없을 때
+    if not self.box.all_ap.size:
+        return 0.0
+
+    # 2. IoU 0.75~0.95 만 평균
+    return float(self.box.all_ap[:, 5:].mean())
+
+
+# ultralytics 의 DetMetrics.fitness (best.pt 고르는 점수) 를 위 함수로 바꿔 끼운다.
+# property 로 감싸야 ultralytics 가 metrics.fitness 처럼 괄호 없이 값을 읽을 수 있다.
+# 이 줄은 import 할 때 한 번 실행되고, 그 뒤 모든 학습에 적용된다.
+DetMetrics.fitness = property(fitness75)
 
 
 def train(args):
@@ -170,7 +176,7 @@ def evaluate(weights, device):
         batch=BATCH,
         device=device,
         split="val",
-        project=str(RUNS),
+        project=str(RUNS_DIR),
         name=f"{NAME}_val",
         exist_ok=True,
     )
@@ -181,34 +187,6 @@ def evaluate(weights, device):
         "mAP50-95": float(metrics.box.map),
         "mAP75-95": float(ap[:, 5:].mean()),
     }
-
-
-# ===== best.pt 선택 기준 =====
-def fitness75(self):
-    """best.pt 를 고를 때 쓸 점수를 대회 지표(mAP75-95)로 계산한다
-
-    입력:
-        self (DetMetrics): ultralytics 가 매 epoch val 을 끝내고 넘겨주는 지표 객체
-
-    반환:
-        float: IoU 0.75~0.95 구간의 평균 AP. 아직 예측이 없으면 0.0
-
-    동작:
-        1. all_ap (클래스 수 x IoU 10칸) 가 비어 있으면 0.0 을 준다. (학습 초반)
-        2. 5번 칸부터(= IoU 0.75, 0.80, 0.85, 0.90, 0.95) 만 평균을 낸다.
-
-    ultralytics 기본값은 mAP50-95 라서, 대회가 점수를 주지 않는 IoU 0.50~0.70
-    구간까지 보고 best.pt 를 고른다. patience 조기종료도 같은 값을 본다.
-    """
-    # 1. 아직 예측이 없을 때
-    if not self.box.all_ap.size:
-        return 0.0
-
-    # 2. IoU 0.75~0.95 만 평균
-    return float(self.box.all_ap[:, 5:].mean())
-
-
-DetMetrics.fitness = property(fitness75)
 
 
 def save_scores(scores, args):
@@ -230,7 +208,7 @@ def save_scores(scores, args):
         5. 같은 줄을 구글 시트에도 보낸다.
            (시트는 정해진 열만 받는다. 인터넷 문제로 실패해도 csv 는 이미 저장돼서 기록이 사라지지 않는다)
     """
-    path = RUNS / "experiments.csv"
+    path = RUNS_DIR / "experiments.csv"
 
     # 1. 기본 정보 + 점수
     row = {
@@ -268,6 +246,11 @@ def save_scores(scores, args):
 def main():
     """전체 순서
 
+    입력: 없음
+
+    반환:
+        없음. runs/<NAME>/ 에 학습 결과를 저장하고 experiments.csv · 구글 시트에 기록한다.
+
     동작:
         1. 장치 선택, 학습 인자 만들기, 실험 정보 출력
         2. 학습
@@ -279,7 +262,10 @@ def main():
     print("실험 이름:", NAME)
     print("메모:", MEMO)
     print("학습 인자:", args)
-    print("실험 설정:", EXPERIMENT if EXPERIMENT else "기본값")
+    if EXPERIMENT:
+        print("실험 설정:", EXPERIMENT)
+    else:
+        print("실험 설정: 기본값")
 
     # 2. 학습
     weights = train(args)
