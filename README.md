@@ -51,7 +51,7 @@ test 에는 Kaggle train 56종에 없는 알약이 섞여 있어서, AI Hub 「�
 **1. 다운로드** · 한 줄로 받습니다. 파일 하나씩 받고 → 조각 합치고 → 압축 풀고 → zip 삭제 순서라 디스크 여유는 25GB 정도면 되고, 중간에 멈추면 이미 받은 것은 건너뛰고 이어서 받습니다. (라벨 55MB + 이미지 약 21GB)
 
 ```bash
-uv run --env-file .env python -m src.data.download_aihub
+uv run python -m src.data.download_aihub
 ```
 
 - ⛔ `TL_2_조합`(66066), `TS_2_조합`(66155) 은 대회 train/test 원본이라 **받지 않습니다** (스크립트에서 제외).
