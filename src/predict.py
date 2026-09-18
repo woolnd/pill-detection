@@ -1,16 +1,28 @@
 ﻿import pandas as pd
 from ultralytics import YOLO
 
-from annotations import RAW
+from annotations import RAW, load_annotations
 from train import IMGSZ, RUNS, get_device
 
-WEIGHTS = RUNS / "experiment_01" / "weights" / "best.pt"
+WEIGHTS = RUNS / "experiment_12_class_balance_s" / "weights" / "best.pt"
 TEST_DIR = RAW / "test_images"
-OUT_CSV = RUNS / "experiment_01" / "submission.csv"
+OUT_CSV = RUNS / "experiment_12_class_balance_s" / "submission.csv"
 CONF = 0.001
 
 
-def to_rows(result, image_id, names):
+def make_category_map():
+    annotations = load_annotations()
+
+    category_map = {}
+
+    for boxes in annotations.values():
+        for box in boxes:
+            category_map[box["class_name"]] = box["class_id"]
+
+    return category_map
+
+
+def to_rows(result, image_id, names, category_map):
     rows = []
     boxes = result.boxes
 
@@ -19,10 +31,17 @@ def to_rows(result, image_id, names):
         boxes.cls.tolist(),
         boxes.conf.tolist(),
     ):
+        class_name = names[int(cls)]
+
+        if class_name not in category_map:
+            raise KeyError(
+                f"원본 category_id를 찾을 수 없습니다: {class_name}"
+            )
+
         rows.append(
             {
                 "image_id": image_id,
-                "category_id": int(names[int(cls)]),
+                "category_id": category_map[class_name],
                 "bbox_x": round(x1),
                 "bbox_y": round(y1),
                 "bbox_w": round(x2 - x1),
@@ -36,6 +55,7 @@ def to_rows(result, image_id, names):
 
 def predict_all(weights, image_dir, device):
     model = YOLO(weights)
+    category_map = make_category_map()
 
     paths = sorted(
         image_dir.glob("*.png"),
@@ -57,6 +77,7 @@ def predict_all(weights, image_dir, device):
             result,
             int(path.stem),
             model.names,
+            category_map,
         )
 
     df = pd.DataFrame(rows)
@@ -71,6 +92,7 @@ def main():
     print("모델:", WEIGHTS)
     print("테스트 이미지:", TEST_DIR)
     print("장치:", device)
+    print("이미지 크기:", IMGSZ)
 
     if not WEIGHTS.exists():
         raise FileNotFoundError(
