@@ -13,8 +13,19 @@ import torch
 # ===== 경로 =====
 ROOT = Path(__file__).resolve().parent.parent  # 프로젝트 루트
 RAW_DIR = ROOT / "data" / "raw"  # download_data.py 가 받는 위치
-KAGGLE_DIR = RAW_DIR / "sprint_ai_project1_data"  # train_images/, train_annotations/, test_images/
-YOLO_DIR = ROOT / "data" / "yolo"  # make_yolo.py 결과
+KAGGLE_DIR = (
+    RAW_DIR / "sprint_ai_project1_data"
+)  # train_images/, train_annotations/, test_images/
+AIHUB_DIR = ROOT / "data" / "aihub"  # AI Hub 조합 데이터 (labels/TL_n/, images/TS_n/)
+
+# AI Hub 데이터를 train 에 더할지 (make_yolo, 학습, 분석이 모두 이 값을 따른다)
+#   True  -> data/yolo_aihub/ (Kaggle + AI Hub)
+#   False -> data/yolo/       (Kaggle 만, 이전 실험과 같은 데이터)
+USE_AIHUB = False
+if USE_AIHUB:
+    YOLO_DIR = ROOT / "data" / "yolo_aihub"
+else:
+    YOLO_DIR = ROOT / "data" / "yolo"
 DATA_YAML = YOLO_DIR / "data.yaml"  # YOLO 학습 설정
 RUNS_DIR = ROOT / "runs"  # 학습 결과 저장 폴더
 
