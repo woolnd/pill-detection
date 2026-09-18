@@ -23,13 +23,17 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 100  # 데이터 전체를 몇 번 반복할지
+EPOCHS = 150  # 데이터 전체를 몇 번 반복할지
 IMGSZ = 1280 # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
 BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
-NAME = "yolo26n_clean_v2"  # 라벨 누락 8장 추가 제외 반영, imgsz는 기존 유지
-MEMO = "yolo26n_clean_ep150 설정 유지 + 라벨 누락 의심 이미지 8장 추가 제외(콤보명-실제라벨 불일치, 3351 4건 포함), imgsz는 960 유지()"
-
+MODEL = "yolo26n.pt"
+EPOCHS = 150
+IMGSZ = 1280
+BATCH = 8
+SEED = 42
+NAME = "yolo26n_clean_v2_imgsz1280_oversample"
+MEMO = "yolo26n_clean_v2_imgsz1280(0.41738)와 완전 동일 설정 + 헷갈리는 클래스(20238, 38162, 19232, 32310, 29667, 16548, 35206) 포함 학습 이미지 오버샘플링(2배) 추가"
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
 # 바꾸고 싶은 값만 "이름": 값 으로 넣는다. 한 번에 하나씩 바꾸고 NAME 도 같이 바꾼다.
@@ -77,7 +81,7 @@ EXPERIMENT = {
     "cos_lr": True,
     "warmup_epochs": 3.0,
     "weight_decay": 0.001,
-    "patience": 30,
+    "patience": 60,
 }
 
 
