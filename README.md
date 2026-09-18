@@ -236,11 +236,11 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 
 | 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |
 |---|---|---|---|---|---|---|
-| 1 | 0.61074 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 엄재웅 | 0.9929 | 09-18 11:52 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
-| 2 | 0.41738 | yolo26n_clean_v2_imgsz1280 | 김라희 | 0.995 | 09-17 18:09 | yolo26n_clean_v2와 EXPERIMENT·epochs(150)·patience(60) 전부 동일, imgsz만 960→1280으로 변경해 크기 효과만 확인 (기존 1280_v3는 degrees=15·cls 1.5도 같이 바뀌어 크기 효과와 분리 안 됐음) |
-| 3 | 0.4155 | jw_ep100_img1280_batch4_lr0.001_cos_lr | 엄재웅 | 0.9784 | 09-17 19:58 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / cos_lr: True |
-| 4 | 0.41504 | jw_ep100_img960_batch8_lr0.001_resplit | 엄재웅 | 0.984 | 09-16 09:59 | epochs: 100 / imgsz: 960 / batch: 8 / lr: 0.001 / val 재분할(train에 모든 클래스가 학습될 수 있도록) |
-| 5 | 0.41264 | imgsz1024, ep150, batch=4 | 윤성원 | 0.9918 | 09-16 16:11 | imgsz=1024, batch=4 가 현재까지 점수가 제일 좋아 EPOCHS=150으로 값 조정 |
+| 1 | 0.62067 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 신재민 | 0.983 | 09-18 17:16 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
+| 2 | 0.61074 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 엄재웅 | 0.9929 | 09-18 11:52 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
+| 3 | 0.59922 | rahui_ep50_img960_batch8_aihubdata_boxcls | 김라희 | 0.9879 | 09-18 17:51 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata 기준 + @ |
+| 4 | 0.41738 | yolo26n_clean_v2_imgsz1280 | 김라희 | 0.995 | 09-17 18:09 | yolo26n_clean_v2와 EXPERIMENT·epochs(150)·patience(60) 전부 동일, imgsz만 960→1280으로 변경해 크기 효과만 확인 (기존 1280_v3는 degrees=15·cls 1.5도 같이 바뀌어 크기 효과와 분리 안 됐음) |
+| 5 | 0.4155 | jw_ep100_img1280_batch4_lr0.001_cos_lr | 엄재웅 | 0.9784 | 09-17 19:58 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / cos_lr: True |
 <!-- 실험그래프 끝 -->
 
 ## 실험 기록 자동화
