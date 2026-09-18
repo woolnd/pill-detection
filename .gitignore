@@ -6,7 +6,7 @@ __pycache__/
 *.pyc
 
 # 데이터 (용량 크고 git 부적합)
-data/raw/
+data/raw/ 
 data/yolo/
 
 # 환경변수

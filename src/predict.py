@@ -1,3 +1,4 @@
+
 """test 이미지 예측 -> Kaggle 제출 파일(csv) 만들기
 
 실행: uv run python src/predict.py   (train.py 로 학습을 먼저 끝내야 한다)
@@ -128,3 +129,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

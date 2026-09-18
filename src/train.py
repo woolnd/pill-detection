@@ -23,12 +23,12 @@ RUNS = ROOT / "runs"  # 학습 결과 저장 폴더
 
 # ===== 학습 설정 =====
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
-EPOCHS = 150  # 데이터 전체를 몇 번 반복할지
-IMGSZ = 1024  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
-BATCH = 4  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
+EPOCHS = 50  # 데이터 전체를 몇 번 반복할지
+IMGSZ = 640  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
+BATCH = 16  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 SEED = 42  # 랜덤 고정
-NAME = "imgsz1024, ep150, batch=4"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
-MEMO = "imgsz=1024, batch=4 가 현재까지 점수가 제일 좋아 EPOCHS=150으로 값 조정"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
+NAME = "ysw_01_06"  # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
+MEMO = "optimizer:AdamW, coslr:True 추가"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
 
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
@@ -63,11 +63,9 @@ MEMO = "imgsz=1024, batch=4 가 현재까지 점수가 제일 좋아 EPOCHS=150�
 #   "patience": 100       N epoch 동안 val 점수가 안 오르면 멈춤. 30
 #   "freeze": None        앞쪽 N층 고정 (데이터 적을 때 과적합 방지). 10
 EXPERIMENT = {
-    "cls": 1.0,
-    "optimizer": "AdamW",
+    "optimizer": "AdamW",  # "AdamW", "SGD", "MuSGD" (Momentum SGD)
     "lr0": 0.001,
-    "hsv_h": 0.0,
-    "fliplr": 0.0, 
+    "cos_lr": True  # 학습률을 코사인 곡선으로 줄인다
 }
 
 
