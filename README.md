@@ -48,18 +48,14 @@ test 에는 Kaggle train 56종에 없는 알약이 섞여 있어서, AI Hub 「�
 
 **0. 준비** · [aihub.or.kr](https://aihub.or.kr) 에서 데이터 이용 신청 후 API 키를 발급받아 `.env` 에 `AI_HUB_KEY=...` 로 넣습니다. (커밋 금지)
 
-**1. 다운로드** · ⛔ `TL_2_조합`(66066), `TS_2_조합`(66155) 은 대회 train/test 원본이라 **사용 금지**입니다.
+**1. 다운로드** · 한 줄로 받습니다. 파일 하나씩 받고 → 조각 합치고 → 압축 풀고 → zip 삭제 순서라 디스크 여유는 25GB 정도면 되고, 중간에 멈추면 이미 받은 것은 건너뛰고 이어서 받습니다. (라벨 55MB + 이미지 약 21GB)
 
 ```bash
-mkdir -p data/aihub && cd data/aihub
-# 라벨 7개 (약 55MB): TL_1, TL_3~8
-curl -L -o download.tar -H "apikey:$AI_HUB_KEY"   "https://api.aihub.or.kr/down/0.6/576.do?fileSn=66065,66067,66068,66069,66070,66071,66072"
-# 이미지 7개 (각 약 3GB): TS_1(66154), TS_3~8(66156~66161) — 하나씩 받기를 권장
+uv run --env-file .env python -m src.data.download_aihub
 ```
 
-받은 `download.tar` 는 `tar -xf` 로 풀고, 조각 파일(`*.partN`)을 **번호 순서대로 이어 붙인 뒤** zip 을 풀어 `data/aihub/labels/TL_n/`, `data/aihub/images/TS_n/` 에 둡니다.
-
-> ⚠️ 공식 `aihubshell` (v0.6) 은 macOS 에서 한글 파일명 조각을 합치지 못해 **빈 zip 을 만들고 조각을 삭제**합니다 (bash 3.2 의 `printf %q` 문제). 위처럼 `curl` 로 받고 병합은 직접 하세요. `-filekey` 를 빼면 데이터셋 전체(수백 GB)를 받습니다.
+- ⛔ `TL_2_조합`(66066), `TS_2_조합`(66155) 은 대회 train/test 원본이라 **받지 않습니다** (스크립트에서 제외).
+- ⚠️ 공식 `aihubshell`(v0.6) 은 macOS 에서 한글 파일명 조각을 합치지 못해 **빈 zip 을 만들고 조각을 삭제**합니다(bash 3.2 의 `printf %q` 문제). 그래서 같은 API 를 직접 호출하는 위 스크립트를 씁니다.
 
 **2. 데이터셋 만들기** · `src/config.py` 의 `USE_AIHUB` 로 전환합니다.
 
@@ -101,6 +97,7 @@ docs/images/   README 실험 그래프 (GitHub Actions가 자동 갱신)
 | `src/annotations.py` | (이미지 × 알약)당 JSON 1개인 라벨을 이미지 파일명 기준으로 묶기 · `compute_iou` |
 | `src/sheet.py` | 구글 시트(Apps Script 웹앱)로 실험 기록 전송 |
 | `src/data/download_data.py` | Kaggle 대회 데이터를 `data/raw/`에 다운로드 |
+| `src/data/download_aihub.py` | AI Hub 조합 데이터를 `data/aihub/`에 다운로드 (받기 → 조각 병합 → 압축 해제) |
 | `src/data/check_raw.py` | 원본 데이터 요약 + 박스 시각화 |
 | `src/data/make_yolo.py` | 문제 있는 이미지 제외 → YOLO 라벨 변환 → 조합 단위 train/val 분할 |
 | `src/data/check_yolo.py` | YOLO 라벨을 픽셀로 되돌려 원본과 비교 |
