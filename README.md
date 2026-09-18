@@ -42,11 +42,50 @@ uv run python -m src.analysis.predict                    # 5. test 예측 → Ka
 
 모든 스크립트는 **프로젝트 루트에서 `python -m src.폴더.파일`** 형태로 실행합니다. (`python src/data/make_yolo.py` 처럼 경로로 실행하면 `from src.config import ...` 를 찾지 못합니다)
 
+## AI Hub 데이터 추가 (최고 점수 재현에 필요)
+
+test 에는 Kaggle train 56종에 없는 알약이 섞여 있어서, AI Hub 「경구약제 이미지 데이터」(datasetkey 576)의 **조합** 데이터를 train 에 더해 클래스를 118종으로 늘렸습니다. Kaggle 0.41550 → **0.61074**.
+
+**0. 준비** · [aihub.or.kr](https://aihub.or.kr) 에서 데이터 이용 신청 후 API 키를 발급받아 `.env` 에 `AI_HUB_KEY=...` 로 넣습니다. (커밋 금지)
+
+**1. 다운로드** · ⛔ `TL_2_조합`(66066), `TS_2_조합`(66155) 은 대회 train/test 원본이라 **사용 금지**입니다.
+
+```bash
+mkdir -p data/aihub && cd data/aihub
+# 라벨 7개 (약 55MB): TL_1, TL_3~8
+curl -L -o download.tar -H "apikey:$AI_HUB_KEY"   "https://api.aihub.or.kr/down/0.6/576.do?fileSn=66065,66067,66068,66069,66070,66071,66072"
+# 이미지 7개 (각 약 3GB): TS_1(66154), TS_3~8(66156~66161) — 하나씩 받기를 권장
+```
+
+받은 `download.tar` 는 `tar -xf` 로 풀고, 조각 파일(`*.partN`)을 **번호 순서대로 이어 붙인 뒤** zip 을 풀어 `data/aihub/labels/TL_n/`, `data/aihub/images/TS_n/` 에 둡니다.
+
+> ⚠️ 공식 `aihubshell` (v0.6) 은 macOS 에서 한글 파일명 조각을 합치지 못해 **빈 zip 을 만들고 조각을 삭제**합니다 (bash 3.2 의 `printf %q` 문제). 위처럼 `curl` 로 받고 병합은 직접 하세요. `-filekey` 를 빼면 데이터셋 전체(수백 GB)를 받습니다.
+
+**2. 데이터셋 만들기** · `src/config.py` 의 `USE_AIHUB` 로 전환합니다.
+
+| 값 | 쓰는 데이터셋 | 용도 |
+|---|---|---|
+| `True` | `data/yolo_aihub/` (Kaggle + AI Hub, 118종) | 최고 점수 재현 |
+| `False` | `data/yolo/` (Kaggle 만, 56종) | 이전 실험 재현 |
+
+```bash
+uv run python -m src.data.make_yolo     # train 10,394장(Kaggle 183 + AI Hub 10,211) / val 37장
+uv run python -m src.data.check_yolo    # 라벨 10,431개 불일치 0개
+```
+
+- **클래스:** AI Hub 라벨은 `categories` 가 전부 `1 "Drug"` 이라, 대회와 같은 약 ID 를 얻으려면 `images[0].drug_N`(예: `K-033880` → 33880)을 쓴다. (`dl_idx` 는 1 차이라 쓰면 안 됨)
+- **val 은 항상 Kaggle 37장:** AI Hub 이미지는 train 에만 들어가서 이전 실험과 val 점수를 비교할 수 있다.
+- **제외:** 깨진 JSON·좌표 131장, 문제 이미지 155장(`remove_bad_images`), 조합 안내용 `*_index.png`
+- **촬영 각도:** `make_yolo.py` 의 `AIHUB_ANGLES` 로 고른다. 기본은 70°·75°·90° 전부이고, 학습 시간을 줄이려면 75° 와 거의 같은 `"70"` 을 뺀다.
+- **디스크:** 이미지는 복사가 아니라 하드링크로 연결해서 추가 용량을 쓰지 않는다.
+
 ## 디렉터리
 
 ```
-data/raw/      Kaggle 원본 데이터 (git 제외)
-data/yolo/     YOLO 형식으로 변환된 데이터셋 (git 제외)
+data/raw/       Kaggle 원본 데이터 (git 제외)
+data/aihub/     AI Hub 조합 데이터 (git 제외, 라벨 labels/TL_n · 이미지 images/TS_n)
+data/yolo/      Kaggle 만으로 만든 YOLO 데이터셋 (git 제외)
+data/yolo_aihub/ Kaggle + AI Hub YOLO 데이터셋 (git 제외)
 runs/          학습 결과 · 가중치 · 분석 그림 · 제출 파일 (git 제외)
 src/           공통 모듈 (config · annotations · sheet)
 src/data/      데이터 다운로드 · 확인 · YOLO 변환

@@ -8,8 +8,8 @@ import random
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from src.annotations import load_annotations
-from src.config import SEED, YOLO_DIR
+from src.annotations import load_aihub_annotations, load_annotations
+from src.config import SEED, USE_AIHUB, YOLO_DIR
 from src.data.make_yolo import IMG_H, IMG_W
 
 
@@ -20,20 +20,24 @@ def compare_with_original():
 
     반환:
         없음. 결과를 출력한다.
-            "라벨 220개 확인 / 불일치 박스 0개"  <- 0개여야 정상
+            "라벨 220개 확인 / 불일치 박스 0개"  <- 0개여야 정상 (USE_AIHUB 이면 라벨 10431개)
 
     동작:
-        1. 원본 JSON 을 load_annotations() 로 읽는다.
+        1. 원본 JSON 을 load_annotations() 로 읽는다. (USE_AIHUB 이면 AI Hub 라벨도 합친다)
         2. labels/train, labels/val 의 txt 를 전부 찾는다.
         3. txt 마다
-           a. 되돌린 좌표를 반올림해서 정렬한다.
-           b. 같은 이미지의 원본 좌표도 정렬한다.
-              (txt 줄 순서와 원본 박스 순서가 같다는 보장이 없어서 정렬 후 비교)
-           c. 박스끼리 x, y, w, h 가 1px 넘게 차이 나면 불일치로 센다.
-              (0.5 같은 반올림 오차가 있어서 1px 까지는 허용)
+           a. 되돌린 좌표를 모은다.
+           b. 같은 이미지의 원본 좌표를 모은다.
+           c. 되돌린 박스마다 x, y, w, h 가 모두 1px 안인 원본 박스가 있는지 찾고, 없으면 불일치로 센다.
+              (txt 줄 순서와 원본 박스 순서가 다를 수 있어서 짝을 찾아 비교한다.
+               정렬해서 순서대로 비교하면 x 가 1px 차이인 박스끼리 순서가 뒤바뀌어 틀리게 센다)
     """
     # 1. 원본
     ann = load_annotations()
+    if USE_AIHUB:
+        aihub_ann, aihub_paths = load_aihub_annotations()
+        for name in aihub_ann:
+            ann[name] = aihub_ann[name]
     bad = 0
 
     # 2. 모든 라벨 파일 (* 자리에 train, val 이 들어간다)
@@ -43,24 +47,26 @@ def compare_with_original():
         # 3-a. 되돌린 좌표 (클래스 번호 idx 는 비교 안 함)
         got = []
         for idx, x, y, w, h in load_label(txt):
-            got.append((round(x), round(y), round(w), round(h)))
-        got.sort()
+            got.append((x, y, w, h))
 
         # 3-b. 원본 좌표 (txt.stem = 확장자 뺀 파일명)
         want = []
         for b in ann[txt.stem + ".png"]:
             want.append((b["x"], b["y"], b["w"], b["h"]))
-        want.sort()
 
-        # 3-c. 박스끼리 x, y, w, h 를 하나씩 비교
-        for got_box, want_box in zip(got, want):
-            too_far = False
-            for got_value, want_value in zip(got_box, want_box):
-                if abs(got_value - want_value) > 1:
-                    too_far = True
-            if too_far:
+        # 3-c. 되돌린 박스마다 1px 안에 맞는 원본 박스 찾기
+        for got_box in got:
+            found = False
+            for want_box in want:
+                close = True
+                for got_value, want_value in zip(got_box, want_box):
+                    if abs(got_value - want_value) > 1:
+                        close = False
+                if close:
+                    found = True
+            if not found:
                 bad += 1
-                print("  불일치:", txt.name, got_box, want_box)
+                print("  불일치:", txt.name, got_box)
 
     print(f"라벨 {len(txts)}개 확인 / 불일치 박스 {bad}개")
 
