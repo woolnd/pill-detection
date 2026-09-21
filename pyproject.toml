@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "accelerate>=1.15.0",
+    "ensemble-boxes>=1.0.9",
     "kagglehub>=1.0.2",
     "pandas>=3.0.5",
     "python-dotenv>=1.2.3",
