@@ -1,4 +1,5 @@
-"""YOLO 학습 + 대회 지표(mAP[0.75:0.95]) 확인
+"""
+YOLO 학습 + 대회 지표(mAP[0.75:0.95]) 확인
 
 실행: uv run python -m src.train.train_yolo   (make_yolo.py 를 먼저 실행해야 한다)
 결과: runs/<NAME>/weights/best.pt
@@ -24,9 +25,8 @@ IMGSZ = 960  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 12
 BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
 # 규칙: 이니셜_모델_ep_img_b_바꾼점  예) "jw_yolo26n_ep50_img640_b4_compare"
-NAME = "jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata"
-MEMO = "epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종)"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
-
+NAME = "rahui_ep30_img960_batch8_aihubdata_oversample_f2"
+MEMO = "오버샘플링유지 + imgsz 1280→960, batch 4→8, epoch 50→30, close_mosaic 5→3(10% 비율 유지)"
 # ===== 실험용 설정 =====
 # 비워두면 ultralytics 기본값으로 학습한다 (= 베이스라인).
 # 바꾸고 싶은 값만 "이름": 값 으로 넣는다. 한 번에 하나씩 바꾸고 NAME 도 같이 바꾼다.
@@ -60,13 +60,14 @@ MEMO = "epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1
 #   "patience": 100       N epoch 동안 val 점수가 안 오르면 멈춤. 30
 #   "freeze": None        앞쪽 N층 고정 (데이터 적을 때 과적합 방지). 10
 EXPERIMENT = {
-    "optimizer": "AdamW",
+  "optimizer": "AdamW",
     "lr0": 0.001,
     "cos_lr": True,
-    "warmup_epochs": 1,
+    "warmup_epochs": 1.5,
     "close_mosaic": 3,
+    "box": 12.0, 
+    "cls": 1.0,
 }
-
 
 def make_train_args(device):
     """model.train() 에 넘길 기본 인자를 딕셔너리로 만든다
