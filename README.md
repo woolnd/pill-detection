@@ -237,10 +237,10 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 | 순위 | kaggle_score | name | author | val mAP75-95 | 시간 | memo |
 |---|---|---|---|---|---|---|
 | 1 | 0.62067 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 신재민 | 0.983 | 09-18 17:16 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
-| 2 | 0.61074 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 엄재웅 | 0.9929 | 09-18 11:52 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
-| 3 | 0.59922 | rahui_ep50_img960_batch8_aihubdata_boxcls | 김라희 | 0.9879 | 09-18 17:51 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata 기준 + @ |
-| 4 | 0.41738 | yolo26n_clean_v2_imgsz1280 | 김라희 | 0.995 | 09-17 18:09 | yolo26n_clean_v2와 EXPERIMENT·epochs(150)·patience(60) 전부 동일, imgsz만 960→1280으로 변경해 크기 효과만 확인 (기존 1280_v3는 degrees=15·cls 1.5도 같이 바뀌어 크기 효과와 분리 안 됐음) |
-| 5 | 0.4155 | jw_ep100_img1280_batch4_lr0.001_cos_lr | 엄재웅 | 0.9784 | 09-17 19:58 | epochs: 100 / imgsz: 1280 / batch: 4 / lr: 0.001 / cos_lr: True |
+| 2 | 0.62041 | rahui_ep30_img960_batch8_aihubdata_oversample_f2 | 김라희 | 0.9892 | 09-20 23:04 | 오버샘플링유지 + imgsz 1280→960, batch 4→8, epoch 50→30, close_mosaic 5→3(10% 비율 유지) |
+| 3 | 0.61712 | rahui_ep50_img1280_batch4_aihubdata_oversample | 김라희 | 0.9903 | 09-20 02:43 | v2(box=12.0/cls=1.0) 설정 그대로 유지, 35206·3832(각인의존형 취약 클래스) 학습 이미지 2배 오버샘플링 추가,conf=0.25 |
+| 4 | 0.61084 | rahui_ep50_img1280_batch4_aihubdata_boxcls_v2 | 김라희 | 0.9924 | 09-19 05:07 | 0.60543 조합(img1280·batch4·warmup1.5·close_mosaic5) 그대로 + box12.0·cls1.0 재추가 (단일 변수 격리 테스트) |
+| 5 | 0.61074 | jw_ep30_img960_batch8_lr0.001_cos_lr_aihubdata | 엄재웅 | 0.9929 | 09-18 11:52 | epochs: 30 / imgsz: 960 / batch: 8 / lr: 0.001 / cos_lr: True / warmup 1 · close_mosaic 3 (100 epoch 와 같은 비율) / AI Hub 조합 데이터 추가 (train 10,394장, 118종) |
 <!-- 실험그래프 끝 -->
 
 ## 실험 기록 자동화
