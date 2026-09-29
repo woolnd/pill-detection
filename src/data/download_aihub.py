@@ -1,6 +1,6 @@
 """AI Hub 조합 데이터 다운로드 -> data/aihub/labels/TL_n, data/aihub/images/TS_n
 
-실행: uv run --env-file .env python -m src.data.download_aihub
+실행: uv run python -m src.data.download_aihub
       (.env 에 AI_HUB_KEY 필요. aihub.or.kr 에서 데이터 이용 신청 · API 키 발급 후)
 결과: data/aihub/labels/TL_1, TL_3~8/   라벨 JSON (약 55MB)
       data/aihub/images/TS_1, TS_3~8/   이미지 png (약 21GB)
@@ -22,6 +22,8 @@ import sys
 import tarfile
 import urllib.request
 import zipfile
+
+from dotenv import load_dotenv
 
 from src.config import AIHUB_DIR
 
@@ -171,17 +173,20 @@ def main():
         없음. data/aihub/labels/, data/aihub/images/ 를 만든다.
 
     동작:
+        0. .env 를 읽어 환경변수로 올린다. (uv run --env-file 을 안 써도 되게)
         1. API 키가 있는지 확인한다.
         2. 라벨(TL) 7개를 받는다. (약 55MB)
         3. 이미지(TS) 7개를 받는다. (각 약 3GB)
         4. 다음에 할 일을 출력한다.
     """
+    # 0. .env 읽기
+    load_dotenv()
+
     # 1. 키 확인
     if not os.environ.get("AI_HUB_KEY"):
         raise SystemExit(
-            "AI_HUB_KEY 가 없습니다. .env 에 AI_HUB_KEY=... 를 넣고\n"
-            "  uv run --env-file .env python -m src.data.download_aihub\n"
-            "로 실행하세요. (키는 aihub.or.kr 에서 데이터 이용 신청 후 발급)"
+            "AI_HUB_KEY 가 없습니다. 프로젝트 루트 .env 에 AI_HUB_KEY=... 를 넣고 다시 실행하세요.\n"
+            "(키는 aihub.or.kr 에서 「경구약제 이미지 데이터」 이용 신청 후 발급)"
         )
     AIHUB_DIR.mkdir(parents=True, exist_ok=True)
 
