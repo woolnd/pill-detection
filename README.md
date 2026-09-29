@@ -1,14 +1,28 @@
 # pill-detection
 
-YOLO로 이미지 속 알약을 탐지하고 종류를 분류하는 프로젝트입니다.
+YOLO로 이미지 속 알약을 탐지하고 종류를 분류하는 프로젝트입니다. (코드잇 AI 엔지니어 과정 초급 프로젝트)
 
-- **입력**: 여러 알약이 함께 놓인 이미지
+- **입력**: 여러 알약이 함께 놓인 이미지 (976 × 1280, 한 장에 3~4알)
 - **출력**: 알약별 바운딩 박스 + 클래스 + 신뢰도
-- **데이터**: Kaggle 대회 `ai14-level-project` 제공 데이터 (AI Hub 「경구약제 이미지 데이터」 조합경구약제 기반)
+- **데이터**: Kaggle 대회 `ai14-level-project` 제공 데이터 + AI Hub 「경구약제 이미지 데이터」 조합 데이터
 - **평가**: Kaggle 리더보드 **mAP[0.75:0.95]**, 최종 순위는 Private Score 기준
-- **팀**: 4명 / 기간 약 4일
+- **팀**: 팀 파이리 4명 / 2026.09.10 ~ 09.29
 
-Kaggle 점수 TOP 5 순위는 [실험 기록](#실험-기록)에서 볼 수 있습니다.
+## 최종 결과
+
+**Kaggle 0.62550** · AI Hub 데이터로 118종까지 늘려 학습한 YOLO26n 두 개를 WBF로 합친 구성입니다. 첫 제출 0.235552에서 2.65배가 됐습니다.
+
+| 구간 | Kaggle 점수 | 얻은 폭 |
+|---|---|---|
+| 기본 설정 → 하이퍼파라미터 조정 | 0.235552 → 0.41550 | +0.180 |
+| AI Hub 데이터 통합 (56종 → 118종) | 0.41550 → 0.61074 | **+0.195** |
+| 오버샘플링 + WBF 앙상블 | 0.61074 → 0.62550 | +0.015 |
+
+- **성능을 가로막은 건 학습 설정이 아니라 데이터였습니다.** 하이퍼파라미터 7가지를 하나씩 바꿔도 점수는 0.39132~0.41738(폭 0.026)에 머물렀습니다. test에 train 56종에 없는 알약이 섞여 있었기 때문이고, AI Hub 데이터를 더하자 한 번에 +0.195가 올랐습니다.
+- **로컬 val 점수는 판단 기준이 되지 못했습니다.** val은 줄곧 0.97~0.99였고 두 점수가 반대로 움직인 실험도 있어서, 모든 판단은 Kaggle 점수로 했습니다.
+- **앙상블은 서로 다르게 학습한 모델끼리 합쳐야 효과가 있었습니다.** 같은 모델의 멀티스케일 TTA는 변화가 없었고(0.61084 → 0.61060), 다른 조건으로 학습한 두 모델을 비중 1 : 1.3으로 합쳤을 때 0.62550이 나왔습니다.
+
+자세한 과정은 [결과](#결과), Kaggle 점수 TOP 5는 [실험 기록](#실험-기록)에서 볼 수 있습니다.
 
 ## 시작하기
 
@@ -25,6 +39,7 @@ uv sync
 ```
 KAGGLE_USERNAME=<캐글 아이디>
 KAGGLE_KEY=<API 키>
+AI_HUB_KEY=<AI Hub API 키>                  # AI Hub 데이터 다운로드용
 SHEET_URL=<실험 기록 구글 시트 웹앱 URL>   # 팀 채팅으로 공유
 AUTHOR=<본인 이름>                          # 실험 기록의 author 칸
 ```
@@ -33,18 +48,20 @@ AUTHOR=<본인 이름>                          # 실험 기록의 author 칸
 
 ```bash
 uv run --env-file .env python -m src.data.download_data   # 1. Kaggle 데이터 다운로드
-uv run python -m src.data.make_yolo                      # 2. 라벨 정리 + COCO JSON → YOLO 변환 + train/val 분할
+uv run python -m src.data.download_aihub                 #    AI Hub 조합 데이터 다운로드 (약 21GB)
+uv run python -m src.data.make_yolo                      # 2. 라벨 정리 + COCO JSON → YOLO 변환 + train/val 분할 + 오버샘플링
 uv run python -m src.data.check_yolo                     #    변환 결과 검증
 uv run python -m src.train.train_yolo                    # 3. 학습 + val 평가 + 실험 기록(csv·구글 시트)
 uv run python -m src.analysis.visualize                  # 4. val 예측 시각화 · 실패 사례 · 클래스별 점수
-uv run python -m src.analysis.predict                    # 5. test 예측 → Kaggle 제출 파일
+uv run python -m src.analysis.predict                    # 5. test 예측 → Kaggle 제출 파일 (기본: 두 모델 WBF 앙상블)
+uv run python -m src.analysis.visualize_ensemble         #    앙상블 예측 시각화
 ```
 
 모든 스크립트는 **프로젝트 루트에서 `python -m src.폴더.파일`** 형태로 실행합니다. (`python src/data/make_yolo.py` 처럼 경로로 실행하면 `from src.config import ...` 를 찾지 못합니다)
 
 ## AI Hub 데이터 추가 (최고 점수 재현에 필요)
 
-test 에는 Kaggle train 56종에 없는 알약이 섞여 있어서, AI Hub 「경구약제 이미지 데이터」(datasetkey 576)의 **조합** 데이터를 train 에 더해 클래스를 118종으로 늘렸습니다. Kaggle 0.41550 → **0.61074**.
+test 에는 Kaggle train 56종에 없는 알약이 섞여 있어서(확인된 것만 18종), AI Hub 「경구약제 이미지 데이터」(datasetkey 576)의 **조합** 데이터를 train 에 더해 클래스를 118종으로 늘렸습니다. Kaggle 0.41550 → **0.61074**.
 
 **0. 준비** · [aihub.or.kr](https://aihub.or.kr) 에서 데이터 이용 신청 후 API 키를 발급받아 `.env` 에 `AI_HUB_KEY=...` 로 넣습니다. (커밋 금지)
 
@@ -61,12 +78,12 @@ uv run python -m src.data.download_aihub
 
 | 값 | 쓰는 데이터셋 | 용도 |
 |---|---|---|
-| `True` | `data/yolo_aihub/` (Kaggle + AI Hub, 118종) | 최고 점수 재현 |
+| `True` | `data/yolo_aihub/` (Kaggle + AI Hub, 118종) | 최고 점수 재현 (기본값) |
 | `False` | `data/yolo/` (Kaggle 만, 56종) | 이전 실험 재현 |
 
 ```bash
-uv run python -m src.data.make_yolo     # train 10,394장(Kaggle 183 + AI Hub 10,211) / val 37장
-uv run python -m src.data.check_yolo    # 라벨 10,431개 불일치 0개
+uv run python -m src.data.make_yolo     # train 10,394장(Kaggle 183 + AI Hub 10,211) + 오버샘플링 복제 808장 / val 37장
+uv run python -m src.data.check_yolo    # 라벨 11,239개 불일치 0개
 ```
 
 - **클래스:** AI Hub 라벨은 `categories` 가 전부 `1 "Drug"` 이라, 대회와 같은 약 ID 를 얻으려면 `images[0].drug_N`(예: `K-033880` → 33880)을 쓴다. (`dl_idx` 는 1 차이라 쓰면 안 됨)
@@ -74,36 +91,43 @@ uv run python -m src.data.check_yolo    # 라벨 10,431개 불일치 0개
 - **제외:** 깨진 JSON·좌표 131장, 문제 이미지 155장(`remove_bad_images`), 조합 안내용 `*_index.png`
 - **촬영 각도:** `make_yolo.py` 의 `AIHUB_ANGLES` 로 고른다. 기본은 70°·75°·90° 전부이고, 학습 시간을 줄이려면 75° 와 거의 같은 `"70"` 을 뺀다.
 - **디스크:** 이미지는 복사가 아니라 하드링크로 연결해서 추가 용량을 쓰지 않는다.
+- **epoch:** 데이터가 약 56배로 늘어서 epoch 를 100 → 30 으로 줄이고, `warmup_epochs`·`close_mosaic` 도 같은 비율로 줄였다. (그대로 두면 학습 전체에서 차지하는 비중이 커진다)
 
 ## 디렉터리
 
 ```
-data/raw/       Kaggle 원본 데이터 (git 제외)
-data/aihub/     AI Hub 조합 데이터 (git 제외, 라벨 labels/TL_n · 이미지 images/TS_n)
-data/yolo/      Kaggle 만으로 만든 YOLO 데이터셋 (git 제외)
+data/raw/        Kaggle 원본 데이터 (git 제외)
+data/aihub/      AI Hub 조합 데이터 (git 제외, 라벨 labels/TL_n · 이미지 images/TS_n)
+data/yolo/       Kaggle 만으로 만든 YOLO 데이터셋 (git 제외)
 data/yolo_aihub/ Kaggle + AI Hub YOLO 데이터셋 (git 제외)
-runs/          학습 결과 · 가중치 · 분석 그림 · 제출 파일 (git 제외)
-src/           공통 모듈 (config · annotations · sheet)
-src/data/      데이터 다운로드 · 확인 · YOLO 변환
-src/train/     학습 (YOLO, Faster R-CNN · RetinaNet 비교용)
-src/analysis/  예측 · 시각화 · 모르는 약 필터 · README 그래프
-docs/images/   README 실험 그래프 (GitHub Actions가 자동 갱신)
-.github/       이슈·PR 템플릿, README 그래프 갱신 워크플로
+runs/            학습 결과 · 가중치 · 분석 그림 · 제출 파일 (git 제외)
+src/             공통 모듈 (config · annotations · sheet)
+src/data/        데이터 다운로드 · 확인 · YOLO 변환
+src/train/       학습 (YOLO, Faster R-CNN · RetinaNet 비교용, 대조학습)
+src/analysis/    예측 · 앙상블 · 시각화 · README 그래프
+docs/images/     README 실험 그래프 (GitHub Actions가 자동 갱신)
+.github/         이슈·PR 템플릿, README 그래프 갱신 워크플로
 ```
 
 | 파일 | 역할 |
 |---|---|
-| `src/config.py` | 공통 경로(`KAGGLE_DIR`, `YOLO_DIR`, `RUNS_DIR` 등) · `SEED` · `get_device` |
+| `src/config.py` | 공통 경로(`KAGGLE_DIR`, `YOLO_DIR`, `RUNS_DIR` 등) · `USE_AIHUB` · `SEED` · `get_device` |
 | `src/annotations.py` | (이미지 × 알약)당 JSON 1개인 라벨을 이미지 파일명 기준으로 묶기 · `compute_iou` |
 | `src/sheet.py` | 구글 시트(Apps Script 웹앱)로 실험 기록 전송 |
 | `src/data/download_data.py` | Kaggle 대회 데이터를 `data/raw/`에 다운로드 |
 | `src/data/download_aihub.py` | AI Hub 조합 데이터를 `data/aihub/`에 다운로드 (받기 → 조각 병합 → 압축 해제) |
 | `src/data/check_raw.py` | 원본 데이터 요약 + 박스 시각화 |
-| `src/data/make_yolo.py` | 문제 있는 이미지 제외 → YOLO 라벨 변환 → 조합 단위 train/val 분할 |
+| `src/data/make_yolo.py` | 문제 있는 이미지 제외 → YOLO 라벨 변환 → 조합 단위 train/val 분할 → 취약 클래스 오버샘플링 |
 | `src/data/check_yolo.py` | YOLO 라벨을 픽셀로 되돌려 원본과 비교 |
+| `src/data/make_pseudo.py` | test 예측을 의사 라벨로 train 에 더한 데이터셋 만들기 (실험용) |
 | `src/train/train_yolo.py` | YOLO 학습, val 평가(mAP75-95), 실험 기록 |
+| `src/train/train_rcnn.py` | Faster R-CNN · RetinaNet 학습 (모델 비교용) |
+| `src/train/train_contrastive.py` | 알약 크롭 임베딩 대조학습 (실험용) |
 | `src/analysis/visualize.py` | val 예측/정답 비교 그림, 오류 유형 집계, 클래스별 AP, 학습 곡선 |
-| `src/analysis/predict.py` | test 842장 예측 → 제출 형식 csv |
+| `src/analysis/predict.py` | test 842장 예측 → 제출 형식 csv (단일 / 멀티스케일 TTA / 두 모델 WBF 앙상블) |
+| `src/analysis/visualize_ensemble.py` | 앙상블 예측 시각화 (test 박스, val 실패 사례) |
+| `src/analysis/filter_unknown.py` | 모르는 알약으로 보이는 박스 점수 낮추기 (실험용, 미사용) |
+| `src/analysis/predict_contrastive.py` | 대조학습 임베딩으로 예측 클래스 재분류 (실험용) |
 | `src/analysis/plot_experiments.py` | 시트 기록으로 README 실험 그래프(SVG) 생성 |
 
 ## 데이터
@@ -115,16 +139,18 @@ data/raw/sprint_ai_project1_data/
 └── test_images/         제출용 이미지 (.png, 라벨 없음, 파일명 = 숫자)
 ```
 
-어노테이션은 **(이미지 × 알약)당 JSON 1개**인 COCO 형식이고, bbox는 `(x, y, w, h)` 픽셀 좌표(좌상단 기준)입니다.
+어노테이션은 **(이미지 × 알약)당 JSON 1개**인 COCO 형식이고, bbox는 `(x, y, w, h)` 픽셀 좌표(좌상단 기준)입니다. 박스 외에 제품명·제조사·각인(`print_front`)·촬영 각도·앞뒷면(`drug_dir`)도 들어 있어 실패 원인을 찾을 때 썼습니다.
 
 | 항목 | 값 |
 |---|---|
 | train 이미지 | 232장 |
 | 박스 (JSON) | 763개 |
-| 클래스 | 56개 |
+| 클래스 | 56개 (한 종류당 평균 약 4장) |
 | test 이미지 | 842장 |
 | 이미지당 알약 수 | 2알 7장 / 3알 151장 / 4알 74장 |
 | 이미지 크기 | 976 × 1280 (train·test 전체) |
+
+**어려운 점** · 위치보다 **종류를 맞히는 것**이 어렵습니다. 색·모양·크기가 거의 같고 각인만 다른 알약이 많고(예: 콜린알포세레이트 연질캡슐 19232 · 32310 · 18357), 뒷면이 찍히면 각인이 보이지 않습니다.
 
 외부 데이터는 사용 가능하지만, AI Hub의 아래 2개는 **사용 금지**입니다. (경진대회 train/test 데이터의 원본)
 
@@ -133,21 +159,21 @@ data/raw/sprint_ai_project1_data/
 
 ## 전처리
 
-`src/data/make_yolo.py`가 아래 순서로 `data/yolo/`를 만듭니다.
+`src/data/make_yolo.py`가 아래 순서로 `data/yolo/`(또는 `data/yolo_aihub/`)를 만듭니다.
 
 **1. 문제 있는 이미지 제외 (232장 → 220장)**
 
 | 제외 이유 | 장수 | 판단 방법 |
 |---|---|---|
-| 라벨 빠짐 | 8 | 파일명의 약 ID(`K-003351-032310-038162` → 3351·32310·38162) 중 박스 라벨이 없는 약이 있음 |
-| 라벨 겹침 | 3 | 한 알약 박스에 서로 다른 약 라벨 2개가 같은 좌표로 붙어 있음 |
 | 박스가 이미지 밖 | 1 | 좌표가 이미지 크기를 넘음 (x=6567) |
+| 라벨 빠짐 | 8 | 파일명의 약 ID(`K-003351-032310-038162` → 3351·32310·38162) 중 박스 라벨이 없는 약이 있음 |
+| 라벨 겹침 | 3 | 한 알약 박스에 서로 다른 약 라벨 2개가 붙어 있음 (IoU 0.9 이상) |
 
 박스만 빼지 않고 이미지째 뺍니다. 라벨이 빠진 알약은 학습 때 '배경'으로 배워서 모델이 그 알약을 무시하게 되기 때문입니다. 제외해도 train에서 사라지는 클래스는 없습니다.
 
-**2. 클래스 번호** · 약 ID(1900, 2483, …)를 정렬해 YOLO 번호 0~55로 매핑. `data.yaml`의 `names`가 번호 → 약 ID 표입니다.
+**2. 클래스 번호** · 약 ID(1900, 2483, …)를 오름차순 정렬해 YOLO 번호 0부터 매핑. 정렬 기준이 고정이라 누가 실행해도 같은 번호가 나오고, `data.yaml`의 `names`가 번호 → 약 ID 표입니다.
 
-**3. train/val 분할** · **조합 단위**로 8:2 (seed 42). 같은 조합을 70°/75°/90°로 찍은 사진이 train과 val에 섞이면 val 점수가 부풀려지기 때문입니다.
+**3. train/val 분할** · **조합 단위**로 8:2 (seed 42). 같은 조합을 70°/75°/90°로 찍은 사진이 train과 val에 섞이면 val 점수가 부풀려지기 때문입니다. 나눈 뒤 train에 없는 약이 생기면 그 조합을 val에서 train으로 옮깁니다.
 
 | 결과 | 값 |
 |---|---|
@@ -155,24 +181,34 @@ data/raw/sprint_ai_project1_data/
 | train에 없는 클래스 | 없음 (val에만 들어간 약 `33009`의 조합을 train으로 되돌림) |
 | 변환 검증 (`check_yolo.py`) | 라벨 220개, 원본과 불일치 0개 |
 
+**4. 오버샘플링** · 점수가 뒤처진 약(`OVERSAMPLE_CLASSES = {35206, 3832}`)이 있는 **train** 이미지를 `OVERSAMPLE_FACTOR = 2`배로 넣습니다. `_dup1` 이름의 하드링크라 디스크를 더 쓰지 않고, val은 복제하지 않습니다. 3832의 AP가 0.932 → 0.995로 회복했지만 18147이 0.931로 떨어졌고, 3배로 올리면 오히려 점수가 내려갔습니다(0.60591).
+
 ## 학습
 
-`src/train/train_yolo.py` 위쪽 설정만 바꿔서 실험합니다.
+`src/train/train_yolo.py` 위쪽 설정만 바꿔서 실험합니다. 아래는 최고 점수(모델 B) 설정입니다.
 
 ```python
 MODEL  = "yolo26n.pt"     # 모델 크기
-EPOCHS = 100              # 학습 바퀴 수
+EPOCHS = 30               # 학습 바퀴 수 (AI Hub 데이터 기준)
 IMGSZ  = 960              # 입력 이미지 크기
-BATCH  = 8                # 한 번에 넣는 사진 수 (64장마다 1번 업데이트는 BATCH와 무관하게 유지)
-NAME   = "jw_yolo26n_ep100_img960_b8_base"  # 실험 이름 = runs/<NAME>/ (실험마다 새 이름)
+BATCH  = 8                # 한 번에 넣는 사진 수
+NAME   = "jw_ep30_img960_batch8_aihubdata_oversample_f2"  # 실험 이름 = runs/<NAME>/ (실험마다 새 이름)
 MEMO   = "무엇을 왜 바꿨는지 한 줄"
-EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}  # 나머지 하이퍼파라미터
+EXPERIMENT = {
+    "optimizer": "AdamW",
+    "lr0": 0.001,
+    "cos_lr": True,
+    "warmup_epochs": 1.5,
+    "close_mosaic": 3,    # 마지막 3 epoch 는 mosaic 끄기 (전체의 10%)
+    "box": 12.0,          # 박스 손실 비중 ↑ (IoU 0.75 이상만 채점하는 대회라)
+    "cls": 1.0,
+}
 ```
 
 - **한 실험에서는 설정 하나만** 바꾸고, NAME은 `이니셜_모델_ep_img_b_바꾼점`으로 짓습니다(예: `jw_yolo26n_ep50_img640_b4_compare`). 같은 NAME이면 결과가 덮어써집니다.
 - `optimizer`가 기본값 `auto`면 `lr0`·`momentum`을 넣어도 무시됩니다. 학습률을 바꿀 땐 `optimizer`도 같이 지정합니다.
 - EPOCHS가 다르면 워밍업 비율·mosaic 끄는 시점도 달라집니다. 같은 EPOCHS끼리 비교합니다.
-- 16GB 맥에서 IMGSZ 960·BATCH 16은 메모리가 부족해 스왑이 발생했습니다. 960에서는 BATCH 8을 씁니다.
+- 16GB 맥(MPS)에서는 IMGSZ 1280이면 BATCH 4, 960이면 BATCH 8이 한계입니다. AI Hub 데이터로 960 · BATCH 8 1 epoch에 약 27분(M2 Pro) 걸립니다.
 
 학습이 끝나면 best.pt로 val을 평가해 mAP50 / mAP50-95 / **mAP75-95**(대회 지표 구간)를 출력하고, `runs/experiments.csv`와 구글 시트에 한 줄 기록합니다.
 
@@ -187,7 +223,8 @@ EXPERIMENT = {"optimizer": "AdamW", "lr0": 0.001}  # 나머지 하이퍼파라�
 ## 평가 · 시각화
 
 ```bash
-uv run python -m src.analysis.visualize   # train_yolo.py 의 NAME 실험을 분석
+uv run python -m src.analysis.visualize            # train_yolo.py 의 NAME 실험을 분석
+uv run python -m src.analysis.visualize_ensemble   # predict.py 의 앙상블(모델 A+B)을 분석 → runs/ensemble_analysis/
 ```
 
 val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에 저장합니다.
@@ -207,25 +244,63 @@ val 예측을 정답과 IoU로 짝지어 분류하고 `runs/<NAME>_analysis/`에
 
 ## 결과
 
-| 실험 | 데이터 | 설정 | val mAP50 | val mAP50-95 | val mAP75-95 | Kaggle Public |
-|---|---|---|---|---|---|---|
-| baseline | 정리 전 (val 42장) | yolo26n · 640 · 50 epoch · BATCH 16 · 기본값 | 0.7876 | 0.7550 | 0.7225 | 0.2356 ※ |
-| jw_ep100_img960_batch8_lr0.00 | 정리 전 (val 42장) | yolo26n · 960 · 100 epoch · BATCH 8 · AdamW lr0 0.001 | 0.9456 | 0.9388 | 0.9321 | 0.39139 |
+**1. 모델 선택** · 같은 조건(50 epoch · 640 · BATCH 4 · MPS)에서 비교했습니다. YOLO는 RetinaNet 점수의 98.6%를 내면서 학습 시간은 44%라, 실험을 더 많이 돌릴 수 있는 YOLO26n을 기본 모델로 정했습니다.
 
-※ 같은 baseline 설정을 다른 컴퓨터에서 학습한 실행(val mAP75-95 0.7179)의 제출 점수입니다.
-라벨 정리·재분할 후에는 val이 37장으로 바뀌어 위 val 점수와 직접 비교하지 않습니다. 전체 기록은 아래 「실험 기록」과 팀 구글 시트를 기준으로 합니다.
+| 모델 | 방식 | val mAP75-95 | 학습 시간 |
+|---|---|---|---|
+| Faster R-CNN | 2단계 | 0.8599 | 61분 8초 |
+| RetinaNet | 1단계 | 0.9584 | 33분 28초 |
+| **YOLO26n** | 1단계 | 0.9451 | **14분 37초** |
 
-**val 오류 유형 (`visualize.py`, 신뢰도 0.25 이상, 정답 박스 131개)**
+**2. 실험 흐름** · 앞 실험의 실패 사례를 보고 가설을 세워 설정 하나씩 바꿨습니다.
 
-| 실험 | OK | LOC | CLS | DUP | FP | FN |
-|---|---|---|---|---|---|---|
-| baseline | 93 | 0 | 24 | 17 | 3 | 14 |
-| 960 · 100 epoch · AdamW | 123 | 0 | 3 | 2 | 3 | 5 |
+| 단계 | 바꾼 것 | val mAP75-95 | Kaggle | 관찰 |
+|---|---|---|---|---|
+| 기본 설정 | yolo26n · 640 · 50 epoch · BATCH 16 | 0.7179 | 0.235552 | 위치는 맞는데 비슷한 알약을 헷갈림 |
+| 해상도·학습량 | 960 · 100 epoch · AdamW lr0 0.001 | 0.9321 | 0.39139 | 33009를 아예 못 찾음 |
+| val 재분할 | 조합 단위 분할 + train 누락 보정 | 0.984 | 0.41503 | 각인만 다른 알약 혼동이 남음 |
+| 해상도 1280 | 960 → 1280, BATCH 8 → 4 | 0.984 | 0.40805 | val 은 좋아졌는데 Kaggle 은 하락 |
+| cos_lr | 학습률 코사인 감쇠 | 0.9784 | 0.41550 | val 은 하락, Kaggle 은 상승 |
+| **AI Hub 추가** | 56종 → 118종, 30 epoch | 0.9929 | **0.61074** | 3832 하나만 AP 0.932로 뒤처짐 |
+| 오버샘플링 | 35206 · 3832 2배 | - | 0.61802 | 3832 AP 0.995로 회복 |
+| **WBF 앙상블** | 모델 A + B, 비중 1 : 1.3 | - | **0.62550** | 최종 |
 
-- 두 실험 모두 **LOC 0개** · 박스 위치는 처음부터 정확했고, 점수를 깎은 것은 분류와 중복 예측이었습니다.
-- 960 · 100 epoch 조합에서 CLS 24 → 3, DUP 17 → 2로 줄었습니다. (세 설정을 함께 바꿔 각각의 효과는 분리되지 않음)
-- 이 조합에 남은 오류 13개 중 FP 3개 전부, CLS 2개, FN 1개는 **라벨 오류 이미지**에서, FN 3개는 train에 없는 **33009**에서 나왔습니다. → 전처리에서 라벨 오류 이미지를 제외한 이유
-- val mAP75-95 0.93과 Kaggle 0.39의 차이가 커서, 이후 실험은 Kaggle 점수를 최종 판단 기준으로 봅니다.
+**3. 0.41의 벽** · AI Hub 전에는 하이퍼파라미터 7가지를 하나씩 바꿔도 Kaggle 점수가 0.026 폭 안에만 있었습니다. val은 전부 0.97 이상이었습니다.
+
+| Kaggle | 실험 | 바꾼 것 | val mAP75-95 |
+|---|---|---|---|
+| 0.41738 | 해상도 1280 | 해상도 | 0.995 |
+| 0.41550 | cos_lr | 학습률 스케줄 | 0.9784 |
+| 0.41504 | val 재분할 | 데이터 나누는 방식 | 0.984 |
+| 0.41467 | yolo26s | 모델 크기 | 0.981 |
+| 0.40516 | freeze 10 | 전이학습 | 0.9738 |
+| 0.40316 | cls_pw 0.5 | 손실 가중치 | 0.9776 |
+| 0.39132 | mosaic 0.5 | 증강 | 0.976 |
+
+**4. WBF 앙상블** · 서로 다른 조건으로 학습한 두 모델을 합쳤습니다. 반반으로 섞으면 약한 모델 A의 오차가 그대로 들어와서, 더 강한 B에 비중을 실었습니다.
+
+| 항목 | 모델 A | 모델 B |
+|---|---|---|
+| 해상도 / 배치 / epoch | 1280 / 4 / 50 | 960 / 8 / 30 |
+| 오버샘플링 | 1배 | 2배 (35206 · 3832) |
+| 단독 Kaggle | 0.61802 | 0.62041 |
+
+| 구성 | Kaggle | 단독 최고 대비 |
+|---|---|---|
+| 모델 B 단독 | 0.62041 | - |
+| 앙상블 1 : 1 | 0.62054 | +0.00013 |
+| **앙상블 1 : 1.3** | **0.62550** | **+0.00509** |
+
+**5. 효과가 없었던 실험**
+
+| 실험 | 가설 | Kaggle |
+|---|---|---|
+| CLAHE 전처리 | 대비를 높이면 각인이 선명해진다 | 0.61084 → 0.6072 (배경에 얼룩이 생겨 알약 경계로 오인) |
+| 멀티스케일 TTA + WBF | 같은 모델을 크기만 바꿔 합치면 좋아진다 | 0.61084 → 0.61060 (세 예측이 거의 같아 새 정보 없음) |
+| 오버샘플링 3배 | 더 많이 복제하면 더 좋아진다 | 0.61084 → 0.60591 (배율을 올리고 대상도 바꿨더니 하락) |
+| 모르는 알약 필터 | 학습에 없는 알약 박스 점수를 낮춘다 | 약 0.415 → 0.41699 (AI Hub 전, 효과가 작아 사용 안 함) |
+
+**6. 남은 실패 유형** · 최종 모델은 val에서 알약 이름을 거의 틀리지 않습니다. 남은 건 한 알약에 박스가 2개 남는 **중복 예측**과 가장자리 빈 곳의 **배경 오탐**인데, 둘 다 신뢰도 0.00~0.01이라 mAP에는 거의 영향이 없습니다.
 
 ## 실험 기록
 
@@ -264,15 +339,26 @@ train_yolo.py 학습 종료
 ## 예측 · 제출
 
 ```bash
-uv run python -m src.analysis.predict   # train_yolo.py 의 NAME 실험 best.pt 로 예측 → runs/<NAME>/submission.csv
+uv run python -m src.analysis.predict
 ```
+
+`src/analysis/predict.py` 위쪽 스위치로 방식을 고릅니다. (우선순위: 앙상블 > TTA > 단일)
+
+| 설정 | 방식 | 결과 파일 |
+|---|---|---|
+| `USE_ENSEMBLE = True` (기본) | 모델 A(1280) + 모델 B(960) 예측을 WBF로 합침 (비중 1 : 1.3, IoU 0.55) | `runs/ensemble_f2_960_ratio_submission.csv` |
+| `USE_TTA = True` | 같은 모델을 `IMGSZ ± 128` 세 크기로 예측 후 WBF | `runs/<NAME>/submission.csv` |
+| 둘 다 `False` | `train_yolo.py` 의 NAME 실험 best.pt 로 단일 예측 | `runs/<NAME>/submission.csv` |
+
+- 앙상블 체크포인트(`WEIGHTS_A`, `WEIGHTS_B`)는 git에 없습니다. 공유 드라이브에서 받아 `runs/<실험 이름>/weights/best.pt` 에 넣습니다.
+- 두 모델은 같은 `data.yaml`(118종)로 학습해야 합니다. 클래스 매핑이 다르면 `assert`로 멈춥니다.
 
 ```
 annotation_id, image_id, category_id, bbox_x, bbox_y, bbox_w, bbox_h, score
 ```
 
 - `image_id` = test 파일명 숫자, `category_id` = 원래 약 ID (YOLO 번호 아님), bbox = 원본 이미지 픽셀 좌표
-- `CONF = 0.001` (mAP는 낮은 점수 박스까지 반영해 계산)
+- `CONF = 0.001` · mAP는 신뢰도 높은 순으로 채점해서 낮은 박스는 점수를 거의 깎지 않고, 그중 하나라도 맞으면 점수가 오릅니다. 그래서 결과 그림에 배경 박스가 많이 보여도 의도한 것입니다. (서비스로 쓴다면 0.25 정도로 올려야 함)
 
 **제출은 사람이 Kaggle 웹에서 직접 합니다.**
 
@@ -282,19 +368,29 @@ annotation_id, image_id, category_id, bbox_x, bbox_y, bbox_w, bbox_h, score
 
 ## 알려진 이슈
 
-- 클래스 `33009`는 조합 단위 분할 결과 val에만 있어 학습되지 않습니다.
-- val(37장)이 작아 0.01~0.02 차이는 우연일 수 있고, val과 Kaggle 점수 차이가 큽니다.
+- **로컬 val ≠ Kaggle** · val(37장)에는 train에 없는 알약이 없어서 0.97~0.99가 나오지만 Kaggle은 그보다 훨씬 낮고, 방향이 반대인 실험(해상도 1280, cos_lr)도 있었습니다. 판단은 Kaggle 점수로 합니다.
+- val이 37장이라 0.01~0.02 차이는 우연일 수 있습니다.
 - 맥 GPU(mps)에서는 일부 연산이 비결정적이라, 장치가 다르면 같은 설정·시드로도 점수가 조금 다릅니다. (같은 맥에서는 50 epoch baseline 두 번 모두 0.7225)
+- 모델은 118종 중 하나를 반드시 고르기 때문에, 처음 보는 알약에도 틀린 이름을 냅니다. ("미등록 알약" 판별은 미구현)
 
 ## 진행 단계
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1. 데이터 준비 | Kaggle 데이터 다운로드, 어노테이션 로드·시각화 | ✅ 완료 (클래스 56개 전체 사용) |
-| 2. 전처리 | 라벨 오류 이미지 제외 → COCO JSON→YOLO 변환 → 조합 단위 분할 → 변환 검증 | ✅ 완료 |
-| 3. 학습 | YOLO 베이스라인 → 하이퍼파라미터 조정 → 비교 모델 | 🔬 실험 중 (구현 완료 · 기준 조합 확보, 하이퍼파라미터·비교 모델 실험 진행) |
-| 4. 평가 | mAP[0.75:0.95], 클래스별 AP, 시각화, confusion matrix, 실패 사례 | ✅ 완료 (분석 자동화, 실험마다 실행) |
-| 5. 제출·문서화 | Kaggle 제출(1일 10회 제한), README 정리 및 재현성 검증 | 🟡 진행 중 (제출·기록 자동화 완료 · 최종 모델 선택, 재현성 검증, 보고서 남음) |
+| 1. 데이터 준비 | Kaggle 데이터 다운로드, 어노테이션 로드·시각화, AI Hub 조합 데이터 추가 | ✅ 완료 (56종 → 118종) |
+| 2. 전처리 | 라벨 오류 이미지 제외 → COCO JSON→YOLO 변환 → 조합 단위 분할 → 오버샘플링 → 변환 검증 | ✅ 완료 |
+| 3. 학습 | 모델 비교(Faster R-CNN · RetinaNet · YOLO) → 하이퍼파라미터 조정 → AI Hub 데이터 → 앙상블 | ✅ 완료 |
+| 4. 평가 | mAP[0.75:0.95], 클래스별 AP, 시각화, confusion matrix, 실패 사례 | ✅ 완료 |
+| 5. 제출·문서화 | Kaggle 제출, README · 최종 보고서 · 발표 | ✅ 완료 (최종 0.62550) |
+
+## 향후 과제
+
+| 과제 | 내용 | 우선순위 |
+|---|---|---|
+| 데이터 추가 확장 | AI Hub에 아직 쓰지 않은 단독·조합 데이터가 남아 있음 | 높음 |
+| 3개 모델 앙상블 | 모델을 하나 더 추가하고 WBF 설정 다듬기 (재학습 불필요) | 중간 |
+| 모르는 알약 거부 | 배우지 않은 알약에 "미등록 알약"이라고 답하기. 대회 점수와는 무관하나 서비스에는 필수 | 낮음 |
+| 노이즈 걸러내기 | 가장자리 배경 박스 제거. 점수와는 무관하고 사용성에만 관련 | 낮음 |
 
 ## 협업 방식
 

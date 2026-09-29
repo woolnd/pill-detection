@@ -49,9 +49,9 @@ def compare_with_original():
         for idx, x, y, w, h in load_label(txt):
             got.append((x, y, w, h))
 
-        # 3-b. 원본 좌표 (txt.stem = 확장자 뺀 파일명)
+        # 3-b. 원본 좌표 (txt.stem = 확장자 뺀 파일명. 오버샘플링 복제본 "_dup1" 은 원본 이름으로 찾는다)
         want = []
-        for b in ann[txt.stem + ".png"]:
+        for b in ann[txt.stem.split("_dup")[0] + ".png"]:
             want.append((b["x"], b["y"], b["w"], b["h"]))
 
         # 3-c. 되돌린 박스마다 1px 안에 맞는 원본 박스 찾기
