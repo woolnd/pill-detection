@@ -18,10 +18,11 @@
     - annotation_id = 1 부터 행마다 고유한 번호
 """
 
+from types import SimpleNamespace
+
 import cv2
 import numpy as np
 import pandas as pd
-import torch
 from ensemble_boxes import weighted_boxes_fusion
 from ultralytics import YOLO
 
@@ -36,7 +37,7 @@ CONF = 0.001  # 이 신뢰도 미만 박스는 버린다. mAP 는 낮은 점수 
 
 # ===== 멀티스케일 TTA 설정 (같은 모델, 스케일만 바꿔 WBF) =====
 USE_TTA = False  # USE_ENSEMBLE=True면 무시됨 (앙상블이 우선)
-TTA_SCALES = [IMGSZ - 128, IMGSZ, IMGSZ + 128]  # 예) 1152, 1280, 1408
+TTA_SCALES = [IMGSZ - 128, IMGSZ, IMGSZ + 128]  # 예) IMGSZ=960 이면 832, 960, 1088
 WBF_IOU_THR = 0.55  # 이 이상 겹치면 같은 박스로 보고 합친다
 WBF_SKIP_BOX_THR = 0.001  # 이 신뢰도 미만은 WBF에서 아예 제외
 
@@ -67,141 +68,91 @@ def predict_test(weights, image_dir, device):
         DataFrame: 제출 형식 그대로의 표 (열 8개)
 
     동작:
-        1. USE_ENSEMBLE이면 모델 A·B를 각각 불러와 predict_ensemble()로 합치고 바로 반환.
-        2. 아니면 단일 모델을 불러와 이미지 경로를 파일명 숫자 순서로 정렬한다.
-           (문자열 정렬이면 1, 10, 100 순서가 된다)
-        3. 이미지마다 예측하고 to_rows() 로 행을 모은다. (USE_TTA면 멀티스케일+WBF)
+        1. 예측 방식을 정한다. (모델, imgsz) 목록 + WBF 비중
+           - 앙상블: 모델 A·B 를 각자 학습 imgsz 로 1번씩
+           - TTA: 같은 모델을 TTA_SCALES 마다 1번씩
+           - 단일: 목록 없이 model.predict() 한 번
+        2. 이미지 경로를 파일명 숫자 순서로 정렬한다. (문자열 정렬이면 1, 10, 100 순서가 된다)
+        3. 이미지마다 예측하고 to_rows() 로 행을 모은다.
         4. 표로 만들고 맨 앞에 annotation_id (1, 2, 3 ...) 열을 넣는다.
     """
+    # 1. 예측 방식
     if USE_ENSEMBLE:
         model_a = YOLO(WEIGHTS_A)
         model_b = YOLO(WEIGHTS_B)
         assert model_a.names == model_b.names, "두 모델 클래스 매핑이 다름 - make_yolo 재실행 여부 확인 필요"
+        model = model_a  # names 를 꺼낼 때 쓴다
+        runs = [(model_a, IMGSZ_A), (model_b, IMGSZ_B)]
+        ratio = ENSEMBLE_WEIGHTS_RATIO
+    else:
+        model = YOLO(weights)
+        runs = [(model, scale) for scale in TTA_SCALES] if USE_TTA else None
+        ratio = None
 
-        paths = sorted(image_dir.glob("*.png"), key=lambda p: int(p.stem))
-        rows = []
-        for path in paths:
-            result = predict_ensemble(model_a, model_b, path, device)
-            rows += to_rows(result, int(path.stem), model_a.names)
-
-        df = pd.DataFrame(rows)
-        df.insert(0, "annotation_id", range(1, len(df) + 1))
-        return df
-
-    model = YOLO(weights)
+    # 2. 파일명 숫자 순서
     paths = sorted(image_dir.glob("*.png"), key=lambda p: int(p.stem))
 
+    # 3. 이미지마다 예측
     rows = []
     for path in paths:
-        if USE_TTA:
-            result = predict_multiscale(model, path, device)
+        if runs:
+            result = predict_wbf(runs, path, device, ratio)
         else:
             result = model.predict(
                 path, imgsz=IMGSZ, conf=CONF, device=device, verbose=False
             )[0]
-
         rows += to_rows(result, int(path.stem), model.names)
 
+    # 4. 표 + annotation_id
     df = pd.DataFrame(rows)
     df.insert(0, "annotation_id", range(1, len(df) + 1))
     return df
 
 
-def predict_multiscale(model, path, device):
-    """스케일 여러 개로 예측한 다음 WBF(Weighted Boxes Fusion)로 하나로 합친다
+def predict_wbf(runs, path, device, ratio=None):
+    """(모델, imgsz) 마다 1번씩 예측한 다음 WBF(Weighted Boxes Fusion)로 하나로 합친다
 
     입력:
-        model (YOLO): 학습된 모델
+        runs (list): [(YOLO, imgsz), ...]
+                     앙상블 예) [(모델A, 1280), (모델B, 960)] / TTA 예) [(모델, 832), (모델, 960), (모델, 1088)]
         path (Path): 예측할 이미지 경로
         device (str): get_device() 결과
+        ratio (list): runs 마다 WBF 비중. None 이면 모두 같게  예) [1.0, 1.3]
 
     반환:
-        _FakeResult: to_rows() 가 기존처럼 .boxes.xyxy/.cls/.conf 로 쓸 수 있게 포장한 객체
+        SimpleNamespace: to_rows() 가 model.predict() 결과처럼 .boxes.xyxy/.cls/.conf 로 쓸 수 있는 객체
 
     동작:
-        1. 원본 이미지 크기를 구한다 (WBF는 0~1 정규화 좌표를 요구해서 필요).
-        2. TTA_SCALES 마다 예측 -> 박스를 0~1 정규화 좌표로 바꿔 리스트에 모은다.
-        3. weighted_boxes_fusion으로 스케일들을 하나로 합친다.
+        1. 원본 이미지 크기를 구한다. (WBF 는 0~1 정규화 좌표를 요구해서 필요)
+        2. runs 마다 예측 -> 박스를 0~1 정규화 좌표로 바꿔 리스트에 모은다.
+        3. weighted_boxes_fusion 으로 하나로 합친다.
         4. 합쳐진 정규화 좌표를 다시 원본 픽셀 좌표로 되돌린다.
-        5. to_rows() 가 쓸 수 있는 모양으로 포장해서 반환.
     """
+    # 1. 원본 크기
     h, w = cv2.imread(str(path)).shape[:2]
 
+    # 2. 예측 + 정규화
     boxes_list, scores_list, labels_list = [], [], []
-    for scale in TTA_SCALES:
-        r = model.predict(path, imgsz=scale, conf=CONF, device=device, verbose=False)[0]
-        xyxy = r.boxes.xyxy.cpu().numpy().copy()
-        if len(xyxy) > 0:
-            xyxy[:, [0, 2]] /= w
-            xyxy[:, [1, 3]] /= h
-        boxes_list.append(xyxy.tolist())
-        scores_list.append(r.boxes.conf.cpu().numpy().tolist())
-        labels_list.append(r.boxes.cls.cpu().numpy().tolist())
-
-    boxes, scores, labels = weighted_boxes_fusion(
-        boxes_list,
-        scores_list,
-        labels_list,
-        iou_thr=WBF_IOU_THR,
-        skip_box_thr=WBF_SKIP_BOX_THR,
-    )
-
-    boxes = np.array(boxes)
-    if len(boxes) > 0:
-        boxes[:, [0, 2]] *= w
-        boxes[:, [1, 3]] *= h
-
-    return _FakeResult(boxes, labels, scores)
-
-
-def predict_ensemble(model_a, model_b, path, device):
-    """서로 다른 두 체크포인트(model_a, model_b)의 예측을 WBF로 합친다.
-
-    predict_multiscale()과 구조는 같고, "같은 모델 다른 스케일" 대신
-    "다른 모델 각자의 학습 imgsz"로 한 번씩 예측한다는 점만 다르다.
-    """
-    h, w = cv2.imread(str(path)).shape[:2]
-
-    boxes_list, scores_list, labels_list = [], [], []
-    for model, imgsz in [(model_a, IMGSZ_A), (model_b, IMGSZ_B)]:
+    for model, imgsz in runs:
         r = model.predict(path, imgsz=imgsz, conf=CONF, device=device, verbose=False)[0]
-        xyxy = r.boxes.xyxy.cpu().numpy().copy()
-        if len(xyxy) > 0:
-            xyxy[:, [0, 2]] /= w
-            xyxy[:, [1, 3]] /= h
+        xyxy = r.boxes.xyxy.cpu().numpy() / [w, h, w, h]
         boxes_list.append(xyxy.tolist())
         scores_list.append(r.boxes.conf.cpu().numpy().tolist())
         labels_list.append(r.boxes.cls.cpu().numpy().tolist())
 
+    # 3. WBF
     boxes, scores, labels = weighted_boxes_fusion(
         boxes_list,
         scores_list,
         labels_list,
-        weights=ENSEMBLE_WEIGHTS_RATIO,
+        weights=ratio,
         iou_thr=WBF_IOU_THR,
         skip_box_thr=WBF_SKIP_BOX_THR,
     )
 
-    boxes = np.array(boxes)
-    if len(boxes) > 0:
-        boxes[:, [0, 2]] *= w
-        boxes[:, [1, 3]] *= h
-
-    return _FakeResult(boxes, labels, scores)
-
-
-class _FakeResult:
-    """to_rows()가 result.boxes.xyxy/.cls/.conf 로 접근하는 걸 흉내낸 포장 클래스"""
-
-    def __init__(self, xyxy, cls, conf):
-        self.boxes = _FakeBoxes(xyxy, cls, conf)
-
-
-class _FakeBoxes:
-    def __init__(self, xyxy, cls, conf):
-        self.xyxy = torch.as_tensor(xyxy, dtype=torch.float32)
-        self.cls = torch.as_tensor(cls, dtype=torch.float32)
-        self.conf = torch.as_tensor(conf, dtype=torch.float32)
+    # 4. 픽셀 좌표로
+    boxes = np.asarray(boxes).reshape(-1, 4) * [w, h, w, h]
+    return SimpleNamespace(boxes=SimpleNamespace(xyxy=boxes, cls=labels, conf=scores))
 
 
 def to_rows(result, image_id, names):

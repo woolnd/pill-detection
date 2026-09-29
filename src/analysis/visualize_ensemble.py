@@ -17,11 +17,17 @@ import pandas as pd
 from matplotlib.patches import Rectangle
 from ultralytics import YOLO
 
-from src.analysis.predict import WEIGHTS_A, WEIGHTS_B, predict_ensemble
+from src.analysis.predict import (
+    ENSEMBLE_WEIGHTS_RATIO,
+    IMGSZ_A,
+    IMGSZ_B,
+    WEIGHTS_A,
+    WEIGHTS_B,
+    predict_wbf,
+)
 from src.analysis.visualize import COLORS, TEXT_BOX, count_status, draw_boxes, match_boxes
 from src.annotations import load_annotations
 from src.config import KAGGLE_DIR, RUNS_DIR, YOLO_DIR, get_device
-from src.train.train_yolo import NAME
 
 # ===== 설정값 =====
 TEST_DIR = KAGGLE_DIR / "test_images"
@@ -61,7 +67,9 @@ def save_test_boxes(model_a, model_b, device, names):
 
     plt.figure(figsize=(12, 10))
     for i, path in enumerate(sample):
-        result = predict_ensemble(model_a, model_b, path, device)
+        result = predict_wbf(
+            [(model_a, IMGSZ_A), (model_b, IMGSZ_B)], path, device, ENSEMBLE_WEIGHTS_RATIO
+        )
         ax = plt.subplot(2, 3, i + 1)
         draw_pred_only(ax, path, result, names)
 
@@ -77,7 +85,9 @@ def predict_val_ensemble(model_a, model_b, device, names):
     """val 이미지 전체를 앙상블로 예측한다 (visualize.py의 predict_val과 같은 모양으로 반환)"""
     preds = {}
     for path in sorted(VAL_DIR.glob("*.png")):
-        result = predict_ensemble(model_a, model_b, path, device)
+        result = predict_wbf(
+            [(model_a, IMGSZ_A), (model_b, IMGSZ_B)], path, device, ENSEMBLE_WEIGHTS_RATIO
+        )
         xyxy = result.boxes.xyxy.tolist()
         classes = result.boxes.cls.tolist()
         scores = result.boxes.conf.tolist()
@@ -119,10 +129,10 @@ def save_ensemble_failures(all_results, n=N_FAILURE_SAMPLES):
     return failed, out
 
 
-# ---------- 3. 학습 곡선 (참고용: 메인 체크포인트=모델 B 기준) ----------
+# ---------- 3. 학습 곡선 (참고용: 모델 B 기준) ----------
 def plot_curves():
-    """앙상블은 별도 학습이 없으므로, 메인 체크포인트(NAME=모델 B)의 학습 곡선을 참고용으로 그린다"""
-    df = pd.read_csv(RUNS_DIR / NAME / "results.csv")
+    """앙상블은 별도 학습이 없으므로, 모델 B 의 학습 곡선을 참고용으로 그린다"""
+    df = pd.read_csv(WEIGHTS_B.parent.parent / "results.csv")  # runs/<모델B>/results.csv
     panels = [
         ("box loss", ["train/box_loss", "val/box_loss"]),
         ("cls loss", ["train/cls_loss", "val/cls_loss"]),
