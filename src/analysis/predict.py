@@ -42,12 +42,13 @@ WBF_IOU_THR = 0.55  # 이 이상 겹치면 같은 박스로 보고 합친다
 WBF_SKIP_BOX_THR = 0.001  # 이 신뢰도 미만은 WBF에서 아예 제외
 
 # ===== 크로스모델 WBF 앙상블 설정 (최종 제출 방식) =====
+# runs/finals/ 에 최종 제출 두 모델이 들어 있다 (git 에 포함). 직접 학습한 모델을 쓰려면 경로를 runs/<NAME>/ 으로 바꾼다
 USE_ENSEMBLE = True  # 끄고 싶으면 False
 
-WEIGHTS_A = RUNS_DIR / "rahui_ep50_img1280_batch4_aihubdata_oversample" / "weights" / "best.pt"  # 개별 0.61802
+WEIGHTS_A = RUNS_DIR / "finals" / "rahui_ep50_img1280_batch4_aihubdata_oversample" / "weights" / "best.pt"  # 개별 0.61802
 IMGSZ_A = 1280
 
-WEIGHTS_B = RUNS_DIR / "rahui_ep30_img960_batch8_aihubdata_oversample_f2" / "weights" / "best.pt"  # 개별 0.62041 (최고)
+WEIGHTS_B = RUNS_DIR / "finals" / "rahui_ep30_img960_batch8_aihubdata_oversample_f2" / "weights" / "best.pt"  # 개별 0.62041 (최고)
 IMGSZ_B = 960
 
 ENSEMBLE_WEIGHTS_RATIO = [1.0, 1.3]  # 두 모델 비중 (B가 더 강해서 더 크게 반영)

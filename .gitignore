@@ -22,7 +22,10 @@ data/yolo_aihub/
 .claude/settings.local.json
 
 # 학습 결과 (가중치, 그림, 제출 파일)
-runs/
+runs/*
+# 최종 제출(0.62550) 두 모델만 올린다
+!runs/finals/
 
 # 모델 가중치 (yolo26n.pt 등 사전학습 모델 자동 다운로드 파일)
 *.pt
+!runs/finals/**/*.pt

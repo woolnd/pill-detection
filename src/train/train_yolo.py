@@ -18,13 +18,17 @@ from src.config import DATA_YAML, RUNS_DIR, SEED, get_device
 from src.sheet import post_to_sheet
 
 # ===== 학습 설정 =====
+# 최종 제출(Kaggle 0.62550) = 모델 A + B 를 WBF 로 합친 앙상블 (predict.py). 둘 다 이 파일로 학습한다. (결과는 runs/<NAME>/, 제출에 쓴 원본은 runs/finals/)
+#   모델 B (지금 값): EPOCHS 30 / IMGSZ 960  / BATCH 8 / close_mosaic 3 / NAME "rahui_ep30_img960_batch8_aihubdata_oversample_f2"
+#   모델 A          : EPOCHS 50 / IMGSZ 1280 / BATCH 4 / close_mosaic 5 / NAME "rahui_ep50_img1280_batch4_aihubdata_oversample"
+#   나머지(EXPERIMENT 의 optimizer · lr0 · cos_lr · warmup · box · cls, 오버샘플링, USE_AIHUB)는 두 모델이 같다.
 MODEL = "yolo26n.pt"  # 사전학습 모델. 크게: "yolo26s.pt", "yolo26m.pt" (처음 실행하면 자동 다운로드)
 EPOCHS = 30  # 데이터 전체를 몇 번 반복할지
 IMGSZ = 960  # 학습할 때 이미지 크기. 원본이 976x1280 이라 960, 1280 도 해볼 만함
 BATCH = 8  # 한 번에 넣을 이미지 수 (IMGSZ 올리다 메모리 부족하면 8, 4 로 줄이기)
 # 실험 이름 (runs/ 아래 폴더 이름). 실험마다 바꿔야 결과가 안 덮인다
 # 규칙: 이니셜_모델_ep_img_b_바꾼점  예) "jw_yolo26n_ep50_img640_b4_compare"
-NAME = "jw_ep30_img960_batch8_aihubdata_oversample_f2"
+NAME = "rahui_ep30_img960_batch8_aihubdata_oversample_f2"
 MEMO = "오버샘플링유지 + imgsz 1280→960, batch 4→8, epoch 50→30, close_mosaic 5→3(10% 비율 유지)"  # 이번 실험에서 무엇을 왜 바꿨는지 한 줄 (시트·csv 에 기록)
 
 # ===== 실험용 설정 =====
