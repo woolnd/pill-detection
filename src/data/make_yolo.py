@@ -25,6 +25,9 @@ AIHUB_ANGLES = [
     "90",
 ]  # AI Hub 에서 쓸 촬영 각도. 학습 시간을 줄이려면 75° 와 거의 같은 "70" 을 뺀다
 IMG_W, IMG_H = 976, 1280  # 모든 이미지 크기 (train/test 1074장 전부 확인함)
+# 오버샘플링: 이 약이 있는 train 이미지를 OVERSAMPLE_FACTOR 배로 넣는다 (각인만으로 구별되는 흰색 정제라 잘 못 잡음)
+OVERSAMPLE_CLASSES = {35206, 3832}  # 비우면 오버샘플링 안 함
+OVERSAMPLE_FACTOR = 2  # 2 = 원본 1장 + 복제 1장
 
 
 # ---------- 1. 문제 있는 이미지 빼기 ----------
@@ -365,6 +368,7 @@ def save_split(ann, names, split, class_to_idx, image_paths):
               하드링크가 안 되는 경우(다른 디스크 등)에만 복사한다.
            b. 박스마다 to_yolo_line() 으로 한 줄씩 만든다.
            c. 줄들을 합쳐서 같은 이름의 .txt 로 저장한다.
+           d. train 이고 OVERSAMPLE_CLASSES 약이 있으면 _dup1, _dup2 ... 이름으로 이미지(하드링크)와 라벨을 더 만든다.
     """
     # 1. 폴더 만들기 (이미 있어도 에러 안 나게 exist_ok=True)
     img_dir = YOLO_DIR / "images" / split
@@ -387,6 +391,13 @@ def save_split(ann, names, split, class_to_idx, image_paths):
         # 2-c. 줄바꿈으로 이어서 저장 (파일명은 이미지와 같고 확장자만 .txt)
         text = "\n".join(lines) + "\n"
         (lbl_dir / name.replace(".png", ".txt")).write_text(text, encoding="utf-8")
+
+        # 2-d. 오버샘플링 (val 은 평가용이라 복제하지 않는다)
+        if split == "train" and {b["class_id"] for b in ann[name]} & OVERSAMPLE_CLASSES:
+            for dup in range(1, OVERSAMPLE_FACTOR):
+                dup_name = name.replace(".png", f"_dup{dup}.png")
+                os.link(img_dir / name, img_dir / dup_name)  # 같은 폴더라 하드링크가 항상 된다
+                (lbl_dir / dup_name.replace(".png", ".txt")).write_text(text, encoding="utf-8")
 
 
 def to_yolo_line(b, idx):

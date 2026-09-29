@@ -21,7 +21,7 @@ AIHUB_DIR = ROOT / "data" / "aihub"  # AI Hub 조합 데이터 (labels/TL_n/, im
 # AI Hub 데이터를 train 에 더할지 (make_yolo, 학습, 분석이 모두 이 값을 따른다)
 #   True  -> data/yolo_aihub/ (Kaggle + AI Hub)
 #   False -> data/yolo/       (Kaggle 만, 이전 실험과 같은 데이터)
-USE_AIHUB = False
+USE_AIHUB = True
 if USE_AIHUB:
     YOLO_DIR = ROOT / "data" / "yolo_aihub"
 else:
