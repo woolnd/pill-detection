@@ -214,7 +214,8 @@ def main():
     """
     # 1. 장치
     device = get_device()
-    print("모델:", WEIGHTS)
+    if not USE_ENSEMBLE:
+        print("모델:", WEIGHTS)
     print("TTA:", USE_TTA, TTA_SCALES if USE_TTA else "")
     print("앙상블:", USE_ENSEMBLE, [str(WEIGHTS_A), str(WEIGHTS_B)] if USE_ENSEMBLE else "")
 

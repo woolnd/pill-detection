@@ -1,6 +1,6 @@
 """test 예측을 의사 라벨로 삼아 train 을 늘린 데이터셋을 만든다
 
-실행: uv run python -m src.data.make_pseudo   (predict.py 나 ensemble.py 로 제출 파일을 먼저 만들어야 한다)
+실행: uv run python -m src.data.make_pseudo   (predict.py 로 제출 파일을 먼저 만들어야 한다)
 결과: data/yolo_pseudo/   기존 train + test 의사 라벨, val 은 그대로
       학습하려면 src/config.py 의 YOLO_DIR 을 이 폴더로 바꾼다.
 
@@ -24,7 +24,7 @@ from src.config import DATA_YAML, KAGGLE_DIR, ROOT, YOLO_DIR
 from src.train.train_yolo import NAME
 
 # ===== 설정값 =====
-SUBMISSION = ROOT / "runs" / NAME / "submission.csv"  # 의사 라벨로 쓸 예측 (wbf 결과도 가능)
+SUBMISSION = ROOT / "runs" / NAME / "submission.csv"  # 의사 라벨로 쓸 예측. 앙상블 결과면 runs/ensemble_f2_960_ratio_submission.csv
 OUT_DIR = ROOT / "data" / "yolo_pseudo"  # 만들 데이터셋
 TEST_DIR = KAGGLE_DIR / "test_images"
 CONF = 0.5  # 이 신뢰도 이상 박스만 라벨로 쓴다 (낮추면 라벨은 늘지만 오류도 늘어난다)
