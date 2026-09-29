@@ -1,8 +1,9 @@
-"""COCO JSON -> YOLO 형식 변환 + train/val 분할
+"""
+COCO JSON -> YOLO 형식 변환 + train/val 분할
 
 실행: uv run python -m src.data.make_yolo
 결과: data/yolo/ (USE_AIHUB = True 이면 data/yolo_aihub/)
-        ├── images/train/, images/val/   이미지 (원본 하드링크)
+        ├── images/train/, images/val/   이미지 (원본 하드링크, USE_CLAHE=True면 CLAHE 보정 후 새로 저장)
         ├── labels/train/, labels/val/   YOLO 라벨 txt
         └── data.yaml                    학습 설정
 
@@ -13,6 +14,8 @@
 import os
 import random
 import shutil
+
+import cv2  # [신규] CLAHE 대비 보정에 사용
 
 from src.annotations import compute_iou, load_aihub_annotations, load_annotations
 from src.config import KAGGLE_DIR, SEED, USE_AIHUB, YOLO_DIR
@@ -26,6 +29,14 @@ AIHUB_ANGLES = [
 ]  # AI Hub 에서 쓸 촬영 각도. 학습 시간을 줄이려면 75° 와 거의 같은 "70" 을 뺀다
 IMG_W, IMG_H = 976, 1280  # 모든 이미지 크기 (train/test 1074장 전부 확인함)
 
+# [신규] CLAHE 대비 보정 설정 (각인이 흐릿한 흰색 알약 구분력 개선 목적)
+USE_CLAHE = False  # True면 CLAHE로 대비 보정한 이미지를 새로 저장한다 (하드링크 대신 실제 파일 생성 -> 디스크 사용량 증가)
+CLAHE_CLIP_LIMIT = 2.0  # 대비 증폭 제한 (너무 크면 노이즈까지 증폭됨)
+CLAHE_TILE_GRID = (8, 8)  # 국소 대비 계산 시 나눌 타일 크기
+
+# [신규] 오버샘플링 설정 - 무채색+각인의존형 취약 클래스 학습 노출 늘리기
+OVERSAMPLE_CLASSES = {35206, 3832}  # 35206: 각인만으로 구별되는 흰색 정제 / 3832: 같은 유형, CLAHE 실험에서 동반 저하 확인
+OVERSAMPLE_FACTOR = 2  # 2배 = 원본 1장 + 복제 1장
 
 # ---------- 1. 문제 있는 이미지 빼기 ----------
 def remove_bad_images(ann):
@@ -342,7 +353,6 @@ def has_any(codes, targets):
     return False
 
 
-# ---------- 4. 파일 쓰기 ----------
 def save_split(ann, names, split, class_to_idx, image_paths):
     """한 분할(train 또는 val)의 이미지와 라벨 파일을 만든다
 
@@ -355,16 +365,19 @@ def save_split(ann, names, split, class_to_idx, image_paths):
 
     반환:
         없음. 파일만 만든다.
-            data/yolo/images/<split>/<이미지명>.png   원본 연결 (하드링크)
+            data/yolo/images/<split>/<이미지명>.png   원본 연결 (하드링크) 또는 CLAHE 보정본
             data/yolo/labels/<split>/<이미지명>.txt   박스 1개 = 한 줄
 
     동작:
         1. images/<split>, labels/<split> 폴더를 만든다.
         2. 이미지마다
-           a. 원본 png 를 images 폴더에 하드링크로 만든다. (AI Hub 는 약 20GB 라 복사하면 디스크를 두 배로 쓴다)
-              하드링크가 안 되는 경우(다른 디스크 등)에만 복사한다.
+           a. USE_CLAHE가 True면 원본을 읽어 CLAHE 보정 후 새 파일로 저장한다.
+              False면 기존처럼 원본 png 를 images 폴더에 하드링크로 만든다.
+              (AI Hub 는 약 20GB 라 복사하면 디스크를 두 배로 쓴다. 하드링크가
+              안 되는 경우(다른 디스크 등)에만 복사한다.)
            b. 박스마다 to_yolo_line() 으로 한 줄씩 만든다.
            c. 줄들을 합쳐서 같은 이름의 .txt 로 저장한다.
+        3. [신규] train 데이터 한정, OVERSAMPLE_CLASSES 포함 이미지는 OVERSAMPLE_FACTOR-1번 추가 복제한다.
     """
     # 1. 폴더 만들기 (이미 있어도 에러 안 나게 exist_ok=True)
     img_dir = YOLO_DIR / "images" / split
@@ -372,12 +385,28 @@ def save_split(ann, names, split, class_to_idx, image_paths):
     img_dir.mkdir(parents=True, exist_ok=True)
     lbl_dir.mkdir(parents=True, exist_ok=True)
 
-    for name in names:
-        # 2-a. 이미지 연결 (하드링크 = 같은 파일을 가리키는 또 하나의 이름. 디스크를 더 쓰지 않는다)
-        try:
-            os.link(image_paths[name], img_dir / name)
-        except OSError:
-            shutil.copy(image_paths[name], img_dir / name)
+    for i, name in enumerate(names):
+        # [신규] 진행 상황 출력 (CLAHE 처리로 시간이 걸려서 몇 장째인지 확인용, 500장마다 1번)
+        if i % 500 == 0:
+            print(f"    {split}: {i}/{len(names)}")
+
+        # 2-a. 이미지 저장
+        # [기존] 항상 하드링크만 했던 부분 (CLAHE 없을 때 이 방식 그대로 유지)
+        # try:
+        #     os.link(image_paths[name], img_dir / name)
+        # except OSError:
+        #     shutil.copy(image_paths[name], img_dir / name)
+
+        # [신규] CLAHE 켜져 있으면 대비 보정 후 새로 저장, 아니면 기존처럼 하드링크
+        if USE_CLAHE:
+            img = cv2.imread(str(image_paths[name]))
+            img = apply_clahe(img)
+            cv2.imwrite(str(img_dir / name), img)
+        else:
+            try:
+                os.link(image_paths[name], img_dir / name)
+            except OSError:
+                shutil.copy(image_paths[name], img_dir / name)
 
         # 2-b. 박스마다 약 ID -> YOLO 번호로 바꾸고 한 줄로 변환
         lines = []
@@ -387,6 +416,60 @@ def save_split(ann, names, split, class_to_idx, image_paths):
         # 2-c. 줄바꿈으로 이어서 저장 (파일명은 이미지와 같고 확장자만 .txt)
         text = "\n".join(lines) + "\n"
         (lbl_dir / name.replace(".png", ".txt")).write_text(text, encoding="utf-8")
+
+        # [신규] 2-d. train에서만, 취약 클래스(OVERSAMPLE_CLASSES) 포함 이미지는 추가 복제
+        if split == "train":
+            classes_here = {b["class_id"] for b in ann[name]}
+            if classes_here & OVERSAMPLE_CLASSES:
+                for dup in range(1, OVERSAMPLE_FACTOR):
+                    dup_name = name.replace(".png", f"_dup{dup}.png")
+                    if USE_CLAHE:
+                        img = cv2.imread(str(image_paths[name]))
+                        img = apply_clahe(img)
+                        cv2.imwrite(str(img_dir / dup_name), img)
+                    else:
+                        try:
+                            os.link(image_paths[name], img_dir / dup_name)
+                        except OSError:
+                            shutil.copy(image_paths[name], img_dir / dup_name)
+                    (lbl_dir / dup_name.replace(".png", ".txt")).write_text(
+                        text, encoding="utf-8"
+                    )
+
+#추가
+def apply_clahe(img_bgr, clip_limit=CLAHE_CLIP_LIMIT, tile_grid_size=CLAHE_TILE_GRID):
+    """이미지의 국소 대비를 CLAHE로 강화한다 (색상 정보는 보존)
+
+    입력:
+        img_bgr (np.ndarray): OpenCV로 읽은 BGR 이미지
+        clip_limit (float): 대비 증폭 제한값
+        tile_grid_size (tuple): 국소 영역을 나눌 타일 크기 (가로, 세로)
+
+    반환:
+        np.ndarray: CLAHE 적용된 BGR 이미지 (원본과 같은 크기)
+
+    동작:
+        1. BGR -> LAB 색공간으로 변환한다. (L=밝기, A/B=색상)
+        2. L(밝기) 채널에만 CLAHE를 적용한다. 색상 채널(A, B)은 그대로 둬서
+           다른 클래스 구분에 쓰이는 색 정보가 안 날아가게 한다.
+        3. 채널을 다시 합쳐서 BGR로 되돌린다.
+
+    이 함수를 쓰는 이유:
+        일부 알약(예: 35206)은 흰색 배경에 얕은 각인만으로 구분되는데,
+        원본 이미지에서는 그 각인의 명암 차이가 너무 작아 모델이 잘 못 잡는다.
+        CLAHE로 국소 대비를 올리면 그 얕은 음영이 더 뚜렷해질 수 있다.
+    """
+    # 1. LAB 변환
+    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+
+    # 2. L 채널에만 CLAHE 적용
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    l_clahe = clahe.apply(l)
+
+    # 3. 합쳐서 BGR로 복원
+    lab_clahe = cv2.merge((l_clahe, a, b))
+    return cv2.cvtColor(lab_clahe, cv2.COLOR_LAB2BGR)
 
 
 def to_yolo_line(b, idx):
